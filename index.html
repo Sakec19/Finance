@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Finance App</title>
+<meta name="description" content="A calm, local-first personal finance tracker. Works offline.">
+<meta name="theme-color" content="#5F7A61">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Finance">
+<link rel="stylesheet" href="styles.css">
+<script>
+/* Apply saved theme before first paint to avoid a flash. */
+try {
+  var _s = JSON.parse(localStorage.getItem('finance-app-v1') || '{}');
+  var _t = (_s.settings && _s.settings.theme) || 'system';
+  var _dark = _t === 'dark' || (_t !== 'light' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = _dark ? 'dark' : 'light';
+} catch (e) { document.documentElement.dataset.theme = 'light'; }
+</script>
+</head>
+<body>
+<header class="app-header">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">◍</span>
+    <span class="brand-name">Finance</span>
+  </div>
+  <div class="header-balance">
+    <span class="hb-label">Balance</span>
+    <span class="hb-value" id="headerBalance">$0.00</span>
+  </div>
+  <div class="header-actions">
+    <button id="btnAdd" class="icon-btn primary" aria-label="Add entry" title="Add entry">＋</button>
+    <button id="btnSettings" class="icon-btn" aria-label="Settings" title="Settings">⚙</button>
+  </div>
+</header>
+
+<div id="reminderBanner" class="reminder-banner hidden" role="alert"></div>
+
+<main id="main">
+  <!-- OVERVIEW -->
+  <section id="view-overview" class="view active" aria-label="Overview">
+    <div class="card">
+      <div class="period-bar">
+        <button id="periodPrev" class="icon-btn" aria-label="Previous period">‹</button>
+        <div class="seg" role="tablist" aria-label="Period">
+          <button data-view="daily" role="tab" aria-selected="false">Daily</button>
+          <button data-view="weekly" role="tab" aria-selected="false">Weekly</button>
+          <button data-view="monthly" role="tab" aria-selected="true" class="on">Monthly</button>
+        </div>
+        <button id="periodNext" class="icon-btn" aria-label="Next period">›</button>
+      </div>
+      <div class="period-label" id="periodLabel"></div>
+      <div class="totals">
+        <div class="total in"><span class="t-label">In</span><span class="t-value" id="totalIn">$0</span></div>
+        <div class="total out"><span class="t-label">Out</span><span class="t-value" id="totalOut">$0</span></div>
+        <div class="total net"><span class="t-label">Net</span><span class="t-value" id="totalNet">$0</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Spending by category</h2>
+      <canvas id="catChart" height="180" aria-label="Bar chart of spending by category"></canvas>
+      <div id="catLegend" class="legend"></div>
+    </div>
+    <div class="card">
+      <h2>Upcoming payments</h2>
+      <div id="upcomingList" class="stack"></div>
+    </div>
+    <div class="card">
+      <h2>Savings pace</h2>
+      <div id="savingsPace" class="stack"></div>
+    </div>
+  </section>
+
+  <!-- ACTIVITY -->
+  <section id="view-activity" class="view" aria-label="Activity">
+    <div class="card">
+      <div class="row-between">
+        <h2>Transactions</h2>
+        <select id="activityFilter" aria-label="Filter transactions">
+          <option value="all">All</option>
+          <option value="income">Income</option>
+          <option value="expense">Expenses</option>
+          <option value="cardpayment">Card payments</option>
+          <option value="saving">Savings</option>
+        </select>
+      </div>
+      <div id="txList" class="stack"></div>
+    </div>
+  </section>
+
+  <!-- CARDS -->
+  <section id="view-cards" class="view" aria-label="Cards">
+    <div class="card">
+      <div class="row-between">
+        <h2>Credit cards</h2>
+        <button class="btn small" id="btnAddCard">Add card</button>
+      </div>
+      <div id="cardList" class="stack"></div>
+    </div>
+    <div class="card">
+      <h2>Payment plan <span class="muted-note">twice a month</span></h2>
+      <div id="planList" class="stack"></div>
+    </div>
+  </section>
+
+  <!-- ACCOUNTS -->
+  <section id="view-accounts" class="view" aria-label="Accounts">
+    <div class="card">
+      <div class="row-between">
+        <h2>Bank accounts</h2>
+        <button class="btn small" id="btnAddAccount">Add account</button>
+      </div>
+      <div id="accountList" class="stack"></div>
+    </div>
+  </section>
+
+  <!-- GOALS -->
+  <section id="view-goals" class="view" aria-label="Savings goals">
+    <div class="card">
+      <div class="row-between">
+        <h2>Savings goals</h2>
+        <button class="btn small" id="btnAddGoal">Add goal</button>
+      </div>
+      <div id="goalList" class="stack"></div>
+    </div>
+    <div class="card hidden" id="roadmapCard">
+      <h2 id="roadmapTitle">Roadmap</h2>
+      <div id="roadmapBody"></div>
+    </div>
+  </section>
+
+  <!-- CALENDAR -->
+  <section id="view-calendar" class="view" aria-label="Calendar">
+    <div class="card">
+      <div class="row-between">
+        <button id="calPrev" class="icon-btn" aria-label="Previous month">‹</button>
+        <h2 id="calLabel" style="margin:0"></h2>
+        <button id="calNext" class="icon-btn" aria-label="Next month">›</button>
+      </div>
+      <div class="row-between" style="margin-top:8px">
+        <span class="muted-note">Tap a day to see what's due</span>
+        <button class="btn small ghost" id="calToday">Today</button>
+      </div>
+      <div id="calGrid" style="margin-top:10px"></div>
+      <div id="calDetail" style="margin-top:12px"></div>
+    </div>
+    <div class="card">
+      <h2>How due dates work</h2>
+      <p class="hint">Each card's due day repeats every month. Your twice-monthly plan schedules the final payment 2–3 days before the due date shown here.</p>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="view-settings" class="view" aria-label="Settings">
+    <div class="card">
+      <h2>Appearance</h2>
+      <div class="seg" role="radiogroup" aria-label="Appearance" id="themeSeg">
+        <button data-theme-opt="system" role="radio" aria-checked="true">System</button>
+        <button data-theme-opt="light" role="radio" aria-checked="false">Light</button>
+        <button data-theme-opt="dark" role="radio" aria-checked="false">Dark</button>
+      </div>
+      <p class="hint">System follows your device's light / dark setting.</p>
+    </div>
+    <div class="card">
+      <h2>Payments</h2>
+      <label class="field">
+        <span>Final payment lands</span>
+        <select id="setLeadDays">
+          <option value="2">2 days before due date</option>
+          <option value="3" selected>3 days before due date</option>
+        </select>
+      </label>
+      <p class="hint">Each card is split into two payments a month. The final payment is scheduled this many days before the due date you enter per card.</p>
+    </div>
+    <div class="card">
+      <h2>Local reminders</h2>
+      <p class="hint">Checks run whenever you open the app: cards due within 3 days, and savings goals off pace.</p>
+      <button class="btn" id="btnNotify">Enable notifications</button>
+      <span id="notifyState" class="muted-note"></span>
+    </div>
+    <div class="card">
+      <h2>Export</h2>
+      <div class="btn-grid">
+        <button class="btn" data-csv="transactions">Transactions CSV</button>
+        <button class="btn" data-csv="accounts">Accounts CSV</button>
+        <button class="btn" data-csv="cards">Cards CSV</button>
+        <button class="btn" data-csv="goals">Goals CSV</button>
+      </div>
+      <p class="hint">UTF-8 with BOM, CRLF line endings — opens correctly in Excel, Numbers, Google Sheets and LibreOffice on any OS.</p>
+    </div>
+    <div class="card">
+      <h2>Backup &amp; restore</h2>
+      <div class="btn-grid">
+        <button class="btn" id="btnBackup">Download backup (JSON)</button>
+        <label class="btn file-btn">Restore from backup<input type="file" id="restoreFile" accept="application/json,.json" hidden></label>
+      </div>
+      <p class="hint">Your data lives only in this browser (local-first). Keep a backup file somewhere safe.</p>
+    </div>
+    <div class="card danger-zone">
+      <h2>Reset</h2>
+      <button class="btn danger" id="btnWipe">Erase all local data</button>
+    </div>
+    <div class="card">
+      <h2>About</h2>
+      <p class="hint">Finance App · local-first PWA · <span id="appVersion">v1.0.0</span><br>Install: use your browser's “Add to Home Screen”. Offline works after the first visit.</p>
+    </div>
+  </section>
+</main>
+
+<nav class="tabbar" aria-label="Primary">
+  <button data-tab="overview" class="on"><span class="tab-ico">◍</span><span>Home</span></button>
+  <button data-tab="activity"><span class="tab-ico">⇄</span><span>Activity</span></button>
+  <button data-tab="cards"><span class="tab-ico">▭</span><span>Cards</span></button>
+  <button data-tab="accounts"><span class="tab-ico">🏦</span><span>Banks</span></button>
+  <button data-tab="goals"><span class="tab-ico">◎</span><span>Goals</span></button>
+  <button data-tab="calendar"><span class="tab-ico">📅</span><span>Calendar</span></button>
+</nav>
+
+<!-- Transaction modal -->
+<div class="modal hidden" id="modalTx" role="dialog" aria-modal="true" aria-label="Transaction">
+  <div class="sheet">
+    <h2 id="txModalTitle">Add entry</h2>
+    <form id="txForm">
+      <input type="hidden" id="txId">
+      <label class="field"><span>Type</span>
+        <select id="txKind">
+          <option value="income">Income</option>
+          <option value="expense" selected>Expense</option>
+          <option value="cardpayment">Card payment</option>
+          <option value="saving">Savings contribution</option>
+        </select>
+      </label>
+      <div class="grid2">
+        <label class="field"><span>Date</span><input type="date" id="txDate" required></label>
+        <label class="field"><span>Amount</span><input type="number" id="txAmount" min="0.01" step="0.01" inputmode="decimal" required></label>
+      </div>
+      <label class="field" id="txCategoryWrap"><span>Category</span>
+        <select id="txCategory"></select>
+      </label>
+      <label class="field" id="txAccountWrap"><span>Account</span><select id="txAccount"></select></label>
+      <label class="field hidden" id="txMethodWrap"><span>Paid with</span><select id="txMethod"></select></label>
+      <label class="field hidden" id="txCardWrap"><span>Card</span><select id="txCard"></select></label>
+      <label class="field hidden" id="txGoalWrap"><span>Goal</span><select id="txGoal"></select></label>
+      <label class="field"><span>Note</span><input type="text" id="txNote" maxlength="140" placeholder="Optional note"></label>
+      <div class="row-end">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="button" class="btn danger hidden" id="txDelete">Delete</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Card modal -->
+<div class="modal hidden" id="modalCard" role="dialog" aria-modal="true" aria-label="Card">
+  <div class="sheet">
+    <h2 id="cardModalTitle">Add card</h2>
+    <form id="cardForm">
+      <input type="hidden" id="cardId">
+      <label class="field"><span>Card name</span><input type="text" id="cardName" required maxlength="60" placeholder="e.g. Sapphire Visa"></label>
+      <label class="field"><span>Card design</span>
+        <div class="issuer-row">
+          <img id="cardIssuerPreview" class="issuer-preview" src="icons/banks/generic.png" alt="Card design">
+          <select id="cardIssuer" aria-label="Card design"></select>
+        </div>
+      </label>
+      <div class="grid2">
+        <label class="field"><span>APR %</span><input type="number" id="cardApr" min="0" max="60" step="0.01" inputmode="decimal" required placeholder="e.g. 24.99"></label>
+        <label class="field"><span>Due day of month</span><input type="number" id="cardDueDay" min="1" max="28" step="1" required placeholder="1–28"></label>
+      </div>
+      <div class="grid2">
+        <label class="field"><span>Credit limit</span><input type="number" id="cardLimit" min="0" step="0.01" inputmode="decimal" placeholder="Optional"></label>
+        <label class="field"><span>Minimum payment</span><input type="number" id="cardMinPay" min="0" step="0.01" inputmode="decimal" placeholder="Optional"></label>
+      </div>
+      <label class="field"><span>Starting balance owed</span><input type="number" id="cardBalance" min="0" step="0.01" inputmode="decimal" value="0"></label>
+      <div class="row-end">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="button" class="btn danger hidden" id="cardDelete">Delete</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Account modal -->
+<div class="modal hidden" id="modalAccount" role="dialog" aria-modal="true" aria-label="Account">
+  <div class="sheet">
+    <h2 id="acctModalTitle">Add account</h2>
+    <form id="acctForm">
+      <input type="hidden" id="acctId">
+      <label class="field"><span>Account name</span><input type="text" id="acctName" required maxlength="60" placeholder="e.g. Checking"></label>
+      <label class="field"><span>Starting balance</span><input type="number" id="acctBalance" step="0.01" inputmode="decimal" value="0"></label>
+      <div class="row-end">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="button" class="btn danger hidden" id="acctDelete">Delete</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Goal modal -->
+<div class="modal hidden" id="modalGoal" role="dialog" aria-modal="true" aria-label="Savings goal">
+  <div class="sheet">
+    <h2 id="goalModalTitle">Add goal</h2>
+    <form id="goalForm">
+      <input type="hidden" id="goalId">
+      <label class="field"><span>Goal name</span><input type="text" id="goalName" required maxlength="60" placeholder="e.g. Emergency fund"></label>
+      <div class="grid2">
+        <label class="field"><span>Target amount</span><input type="number" id="goalTarget" min="1" step="0.01" inputmode="decimal" required></label>
+        <label class="field"><span>Target date</span><input type="date" id="goalDate" required></label>
+      </div>
+      <label class="field"><span>Already saved</span><input type="number" id="goalSaved" min="0" step="0.01" inputmode="decimal" value="0"></label>
+      <div class="row-end">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="button" class="btn danger hidden" id="goalDelete">Delete</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden" role="status"></div>
+
+<script src="card-designs.js"></script>
+<script src="app.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
