@@ -89,23 +89,36 @@ function bankOf(id) {
 /* ---------------- storage ---------------- */
 var KEY = 'finance-app-v1';
 function blankState() {
-  return { transactions: [], accounts: [], cards: [], goals: [], settings: { leadDays: 3, theme: 'system' } };
+  return { transactions: [], accounts: [], cards: [], goals: [],
+    settings: { leadDays: 3, theme: 'system',
+      driveClientId: '', driveAutoBackup: false, driveFolderId: '', driveFileId: '',
+      driveLastBackupAt: '', driveEmail: '' } };
+}
+/* Merge a parsed backup (or stored state) onto defaults so older backups
+   without newer settings fields still load. Never throws on bad input. */
+function normalizeState(obj) {
+  var b = blankState();
+  if (!obj || typeof obj !== 'object') return b;
+  ['transactions', 'accounts', 'cards', 'goals'].forEach(function (k) {
+    if (Array.isArray(obj[k])) b[k] = obj[k];
+  });
+  var s = obj.settings || {};
+  if (s.leadDays === 2 || s.leadDays === 3) b.settings.leadDays = s.leadDays;
+  if (s.theme === 'light' || s.theme === 'dark' || s.theme === 'system') b.settings.theme = s.theme;
+  if (typeof s.driveClientId === 'string') b.settings.driveClientId = s.driveClientId;
+  if (typeof s.driveAutoBackup === 'boolean') b.settings.driveAutoBackup = s.driveAutoBackup;
+  if (typeof s.driveFolderId === 'string') b.settings.driveFolderId = s.driveFolderId;
+  if (typeof s.driveFileId === 'string') b.settings.driveFileId = s.driveFileId;
+  if (typeof s.driveLastBackupAt === 'string') b.settings.driveLastBackupAt = s.driveLastBackupAt;
+  if (typeof s.driveEmail === 'string') b.settings.driveEmail = s.driveEmail;
+  b.cards.forEach(function (c) { if (!c.bankId) c.bankId = 'generic'; });
+  return b;
 }
 function loadState() {
   try {
     var raw = null;
     if (typeof localStorage !== 'undefined') raw = localStorage.getItem(KEY);
-    if (raw) {
-      var s = JSON.parse(raw);
-      var b = blankState();
-      ['transactions', 'accounts', 'cards', 'goals'].forEach(function (k) {
-        if (Array.isArray(s[k])) b[k] = s[k];
-      });
-      if (s.settings && (s.settings.leadDays === 2 || s.settings.leadDays === 3)) b.settings.leadDays = s.settings.leadDays;
-      if (s.settings && (s.settings.theme === 'light' || s.settings.theme === 'dark' || s.settings.theme === 'system')) b.settings.theme = s.settings.theme;
-      b.cards.forEach(function (c) { if (!c.bankId) c.bankId = 'generic'; });
-      return b;
-    }
+    if (raw) return normalizeState(JSON.parse(raw));
   } catch (e) { /* corrupted or unavailable: start fresh */ }
   return blankState();
 }
@@ -298,6 +311,185 @@ function validateBackup(obj) {
   var need = ['transactions', 'accounts', 'cards', 'goals'];
   for (var i = 0; i < need.length; i++) if (!Array.isArray(obj[need[i]])) return 'Backup is missing "' + need[i] + '".';
   return null;
+}
+
+/* ---------------- encrypted cloud backup (Google Drive) ----------------
+   The backup is encrypted on this device with PBKDF2-SHA256 + AES-GCM-256
+   before anything is uploaded. The passphrase is never stored anywhere
+   (not in localStorage, not in Drive) and Google only ever sees ciphertext. */
+var DRIVE = {
+  scope: 'https://www.googleapis.com/auth/drive.file',
+  folderName: 'Finance App',
+  fileName: 'finance-backup.enc.json',
+  folderMime: 'application/vnd.google-apps.folder',
+  kdfIterations: 600000
+};
+function getSubtle() {
+  try {
+    var c = (typeof crypto !== 'undefined') ? crypto : null;
+    return (c && c.subtle) ? c.subtle : null;
+  } catch (e) { return null; }
+}
+function b64encode(bytes) {
+  var s = '';
+  for (var i = 0; i < bytes.length; i += 8192) {
+    s += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+  }
+  return btoa(s);
+}
+function b64decode(str) {
+  var bin = atob(str), out = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function driveErrorMessage(e) { return (e && e.message) ? e.message : 'Unknown error'; }
+async function deriveBackupKey(passphrase, salt) {
+  var subtle = getSubtle();
+  if (!subtle) throw new Error('Cloud backup needs a secure (https) connection. Use the installed app, not the Wi-Fi preview.');
+  var base = await subtle.importKey('raw', new TextEncoder().encode(passphrase), 'PBKDF2', false, ['deriveKey']);
+  return subtle.deriveKey(
+    { name: 'PBKDF2', salt: salt, iterations: DRIVE.kdfIterations, hash: 'SHA-256' },
+    base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+function randomBytes(n) {
+  var c = (typeof crypto !== 'undefined') ? crypto : null;
+  if (!c || !c.getRandomValues) throw new Error('Cloud backup needs a secure (https) connection. Use the installed app, not the Wi-Fi preview.');
+  return c.getRandomValues(new Uint8Array(n));
+}
+/* Returns the encrypted envelope as a JSON string. Throws on bad input. */
+async function encryptBackup(stateObj, passphrase) {
+  if (!passphrase) throw new Error('Enter a backup passphrase.');
+  var subtle = getSubtle();
+  if (!subtle) throw new Error('Cloud backup needs a secure (https) connection. Use the installed app, not the Wi-Fi preview.');
+  var salt = randomBytes(16), iv = randomBytes(12);
+  var key = await deriveBackupKey(passphrase, salt);
+  var cipher = await subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, new TextEncoder().encode(JSON.stringify(stateObj)));
+  return JSON.stringify({ v: 1, salt: b64encode(salt), iv: b64encode(iv), data: b64encode(new Uint8Array(cipher)) });
+}
+/* Decrypts an envelope string and returns the parsed, validated backup object. */
+async function decryptBackup(envelopeStr, passphrase) {
+  if (!passphrase) throw new Error('Enter a backup passphrase.');
+  var env;
+  try { env = JSON.parse(envelopeStr); } catch (e) { throw new Error('This is not a Finance App cloud backup.'); }
+  if (!env || env.v !== 1 || typeof env.salt !== 'string' || typeof env.iv !== 'string' || typeof env.data !== 'string') {
+    throw new Error('This is not a Finance App cloud backup.');
+  }
+  var subtle = getSubtle();
+  if (!subtle) throw new Error('Cloud backup needs a secure (https) connection. Use the installed app, not the Wi-Fi preview.');
+  try {
+    var key = await deriveBackupKey(passphrase, b64decode(env.salt));
+    var plain = await subtle.decrypt({ name: 'AES-GCM', iv: b64decode(env.iv) }, key, b64decode(env.data));
+    var obj = JSON.parse(new TextDecoder().decode(plain));
+    var err = validateBackup(obj);
+    if (err) throw new Error(err);
+    return obj;
+  } catch (e) {
+    if (e.message === 'This is not a Finance App cloud backup.') throw e;
+    throw new Error('Wrong passphrase, or the backup is damaged.');
+  }
+}
+/* Parses a URL fragment like "#access_token=...&expires_in=3600" into an object. */
+function parseFragment(hash) {
+  var out = {};
+  var s = String(hash || '').replace(/^#/, '');
+  s.split('&').forEach(function (pair) {
+    if (!pair) return;
+    var eq = pair.indexOf('=');
+    var k = decodeURIComponent(eq === -1 ? pair : pair.slice(0, eq));
+    var v = decodeURIComponent(eq === -1 ? '' : pair.slice(eq + 1));
+    if (k) out[k] = v;
+  });
+  return out;
+}
+
+/* ---------------- Google Drive API (fetch-injectable for tests) ---------------- */
+function driveFetchImpl(fetchImpl) {
+  var f = fetchImpl || ((typeof fetch !== 'undefined') ? fetch : null);
+  if (!f) throw new Error('Network fetch is not available in this browser.');
+  return f;
+}
+async function driveFetch(url, token, opts, fetchImpl) {
+  var res = await driveFetchImpl(fetchImpl)(url, Object.assign({}, opts || {}, {
+    headers: Object.assign({ Authorization: 'Bearer ' + token }, (opts && opts.headers) || {})
+  }));
+  if (res.ok) return res;
+  var detail = '';
+  try {
+    var body = await res.json();
+    if (body && body.error && body.error.message) detail = ': ' + body.error.message;
+  } catch (e) { /* keep status-only message */ }
+  throw new Error('Google Drive error ' + res.status + detail);
+}
+function driveEscapeQuery(s) { return String(s).replace(/'/g, "\\'"); }
+async function driveFindFile(token, name, fetchImpl, mimeType) {
+  var q = "name = '" + driveEscapeQuery(name) + "' and trashed = false";
+  if (mimeType) q += " and mimeType = '" + driveEscapeQuery(mimeType) + "'";
+  var url = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(q) +
+    '&spaces=drive&fields=' + encodeURIComponent('files(id,name,modifiedTime,trashed,mimeType)');
+  var res = await driveFetch(url, token, { method: 'GET' }, fetchImpl);
+  var body = await res.json();
+  var files = (body && body.files) || [];
+  return files.length ? files[0] : null;
+}
+async function driveGetFile(token, fileId, fetchImpl) {
+  var url = 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) +
+    '?fields=' + encodeURIComponent('id,name,trashed,mimeType');
+  var res = await driveFetch(url, token, { method: 'GET' }, fetchImpl);
+  return res.json();
+}
+async function driveCreateFolder(token, fetchImpl) {
+  var url = 'https://www.googleapis.com/drive/v3/files';
+  var res = await driveFetch(url, token, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: DRIVE.folderName, mimeType: DRIVE.folderMime })
+  }, fetchImpl);
+  var body = await res.json();
+  return body.id;
+}
+async function driveEnsureFolder(token, fetchImpl, knownId) {
+  if (knownId) {
+    try {
+      var meta = await driveGetFile(token, knownId, fetchImpl);
+      if (meta && !meta.trashed && meta.mimeType === DRIVE.folderMime) return knownId;
+    } catch (e) { /* stale id: fall through to search/create */ }
+  }
+  var found = await driveFindFile(token, DRIVE.folderName, fetchImpl, DRIVE.folderMime);
+  if (found) return found.id;
+  return driveCreateFolder(token, fetchImpl);
+}
+/* Creates the backup file (no fileId) or overwrites it (fileId given). Returns the file id. */
+async function driveUploadBackup(token, folderId, fileId, content, fetchImpl) {
+  if (fileId) {
+    var updateUrl = 'https://www.googleapis.com/upload/drive/v3/files/' + encodeURIComponent(fileId) + '?uploadType=media';
+    var up = await driveFetch(updateUrl, token, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: content
+    }, fetchImpl);
+    var upBody = await up.json();
+    return (upBody && upBody.id) || fileId;
+  }
+  var boundary = 'finance-app-' + uid();
+  var metadata = JSON.stringify({ name: DRIVE.fileName, mimeType: 'application/json', parents: [folderId] });
+  var body = '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + metadata +
+    '\r\n--' + boundary + '\r\nContent-Type: application/json\r\n\r\n' + content +
+    '\r\n--' + boundary + '--';
+  var createUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+  var res = await driveFetch(createUrl, token, {
+    method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + boundary }, body: body
+  }, fetchImpl);
+  var created = await res.json();
+  if (!created || !created.id) throw new Error('Google Drive did not return a file id for the backup.');
+  return created.id;
+}
+async function driveDownloadBackup(token, fileId, fetchImpl) {
+  var url = 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media';
+  var res = await driveFetch(url, token, { method: 'GET' }, fetchImpl);
+  return res.text();
+}
+async function driveAbout(token, fetchImpl) {
+  var url = 'https://www.googleapis.com/drive/v3/about?fields=' + encodeURIComponent('user(emailAddress,displayName)');
+  var res = await driveFetch(url, token, { method: 'GET' }, fetchImpl);
+  var body = await res.json();
+  return (body && body.user) || {};
 }
 
 /* Due dates repeat monthly. Returns { dayNumber: [card, ...] } for the given month (0-11). */
@@ -694,6 +886,7 @@ function renderSettings() {
   try {
     n.textContent = (typeof Notification !== 'undefined' && Notification.permission === 'granted') ? 'Notifications on.' : '';
   } catch (e) {}
+  renderDriveStatus();
 }
 
 /* ---------------- modals & forms ---------------- */
@@ -824,16 +1017,203 @@ function openGoalModal(id) {
   openModal('modalGoal');
 }
 
-function saveAndRender(msg) {
+function saveAndRender(msg, opts) {
   if (!persist(state)) toast('Warning: browser storage unavailable — export a backup!');
   render();
   if (msg) toast(msg);
+  if (!(opts && opts.skipAutoBackup)) driveMaybeAutoBackup();
+}
+
+/* ---------------- Google Drive auth & operations (DOM only) ----------------
+   Sign-in uses Google Identity Services in redirect mode (ux_mode: 'redirect'),
+   which works in an installed iPhone PWA where popups do not come back to the
+   app. The token lives only in memory; the pending action survives the
+   redirect in localStorage because the page reloads. The passphrase is never
+   persisted — after a redirect the user re-enters it to finish the operation. */
+var driveAuth = { token: null, expiresAt: 0 };
+var driveSessionPassphrase = null; /* memory only; enables auto-backup until the tab closes */
+var driveBusy = false;
+var DRIVE_PENDING_KEY = 'finance-app-drive-pending';
+var DRIVE_NONCE_KEY = 'finance-app-drive-nonce';
+function driveGetPending() {
+  try { return localStorage.getItem(DRIVE_PENDING_KEY) || ''; } catch (e) { return ''; }
+}
+function driveSetPending(action) {
+  try { localStorage.setItem(DRIVE_PENDING_KEY, action || 'connect'); } catch (e) {}
+}
+function driveClearPending() {
+  try { localStorage.removeItem(DRIVE_PENDING_KEY); } catch (e) {}
+}
+function driveHasValidToken() {
+  return !!(driveAuth.token && Date.now() < driveAuth.expiresAt);
+}
+function driveClearHash() {
+  try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) {}
+}
+function driveBeginAuth(action) {
+  var field = $('driveClientId');
+  var typed = field ? field.value.trim() : '';
+  if (typed && typed !== state.settings.driveClientId) {
+    state.settings.driveClientId = typed;
+    state.settings.driveEmail = '';
+    driveAuth.token = null; driveAuth.expiresAt = 0;
+    persist(state);
+  }
+  var clientId = (state.settings.driveClientId || '').trim();
+  if (!clientId) { toast('Paste your Google OAuth client ID first.'); return; }
+  if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
+    toast('Google sign-in could not load — check your connection and reload.');
+    return;
+  }
+  var nonce = uid() + uid();
+  try { localStorage.setItem(DRIVE_NONCE_KEY, nonce); } catch (e) {}
+  driveSetPending(action || 'connect');
+  try {
+    var client = google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: DRIVE.scope,
+      ux_mode: 'redirect',
+      redirect_uri: window.location.origin + window.location.pathname,
+      state: nonce,
+      callback: function () { /* redirect mode delivers the token in the URL hash, not here */ }
+    });
+    client.requestAccessToken();
+  } catch (e) {
+    driveClearPending();
+    toast('Could not start Google sign-in: ' + driveErrorMessage(e));
+  }
+}
+function driveHandleAuthReturn() {
+  var hash = '';
+  try { hash = window.location.hash || ''; } catch (e) { return; }
+  if (!hash) return;
+  var params = parseFragment(hash);
+  if (params.error) {
+    driveClearPending();
+    driveClearHash();
+    toast('Google sign-in was declined.');
+    return;
+  }
+  if (!params.access_token) return;
+  var nonce = null;
+  try { nonce = localStorage.getItem(DRIVE_NONCE_KEY); } catch (e) {}
+  if (params.state && nonce && params.state !== nonce) {
+    driveClearPending();
+    driveClearHash();
+    toast('Sign-in response did not match — please try again.');
+    return;
+  }
+  driveAuth.token = params.access_token;
+  driveAuth.expiresAt = Date.now() + (parseInt(params.expires_in || '3600', 10) - 60) * 1000;
+  driveClearHash();
+  var pending = driveGetPending();
+  driveClearPending();
+  driveRefreshEmail();
+  if (pending === 'backup') toast('Connected to Google Drive — enter your passphrase and tap Back up now.');
+  else if (pending === 'restore') toast('Connected to Google Drive — enter your passphrase and tap Restore from Drive.');
+  else toast('Connected to Google Drive.');
+}
+function driveRefreshEmail() {
+  if (!driveHasValidToken()) return;
+  driveAbout(driveAuth.token).then(function (user) {
+    if (user && user.emailAddress) {
+      state.settings.driveEmail = user.emailAddress;
+      persist(state);
+      renderDriveStatus();
+    }
+  }).catch(function () { /* email is display-only; a failed lookup must not break backup */ });
+}
+function renderDriveStatus() {
+  var el = $('driveStatus'); if (!el) return;
+  var idField = $('driveClientId'); if (idField) idField.value = state.settings.driveClientId || '';
+  var autoBox = $('driveAutoBackup'); if (autoBox) autoBox.checked = !!state.settings.driveAutoBackup;
+  var parts = [];
+  if (!state.settings.driveClientId) parts.push('Add your OAuth client ID to connect.');
+  else if (!driveHasValidToken()) parts.push('Not connected.');
+  else {
+    parts.push('Connected' + (state.settings.driveEmail ? ' as ' + state.settings.driveEmail : '') + '.');
+    if (state.settings.driveLastBackupAt) {
+      var d = new Date(state.settings.driveLastBackupAt);
+      parts.push('Last backup ' + (isNaN(d.getTime()) ? state.settings.driveLastBackupAt : d.toLocaleString()) + '.');
+    }
+  }
+  if (state.settings.driveAutoBackup && !driveSessionPassphrase) {
+    parts.push('Auto-backup paused — enter your passphrase and back up once to resume.');
+  }
+  el.textContent = parts.join(' ');
+}
+async function driveBackupNow(passphrase, opts) {
+  opts = opts || {};
+  if (driveBusy) return false;
+  if (!driveHasValidToken()) {
+    if (!opts.silent) driveBeginAuth('backup');
+    return false;
+  }
+  var pass = passphrase || driveSessionPassphrase;
+  if (!pass) {
+    if (!opts.silent) toast('Enter your backup passphrase.');
+    return false;
+  }
+  driveBusy = true;
+  try {
+    var folderId = await driveEnsureFolder(driveAuth.token, undefined, state.settings.driveFolderId || '');
+    var existing = await driveFindFile(driveAuth.token, DRIVE.fileName);
+    var content = await encryptBackup(state, pass);
+    var fileId = await driveUploadBackup(driveAuth.token, folderId, existing ? existing.id : null, content);
+    state.settings.driveFolderId = folderId;
+    state.settings.driveFileId = fileId;
+    state.settings.driveLastBackupAt = new Date().toISOString();
+    if (state.settings.driveAutoBackup) driveSessionPassphrase = pass;
+    persist(state);
+    renderDriveStatus();
+    if (!opts.silent) toast('Backed up to Google Drive.');
+    return true;
+  } catch (e) {
+    if (!opts.silent) toast('Drive backup failed: ' + driveErrorMessage(e));
+    return false;
+  } finally { driveBusy = false; }
+}
+async function driveRestoreNow(passphrase) {
+  if (driveBusy) return;
+  if (!driveHasValidToken()) { driveBeginAuth('restore'); return; }
+  var pass = passphrase || driveSessionPassphrase;
+  if (!pass) { toast('Enter your backup passphrase.'); return; }
+  if (!confirm('Replace everything on this device with the Drive backup? This cannot be undone.')) return;
+  driveBusy = true;
+  try {
+    var file = await driveFindFile(driveAuth.token, DRIVE.fileName);
+    if (!file) { toast('No backup found in Google Drive yet.'); return; }
+    var content = await driveDownloadBackup(driveAuth.token, file.id);
+    var obj = await decryptBackup(content, pass);
+    state = normalizeState(obj);
+    ui.openGoal = null;
+    if (state.settings.driveAutoBackup) driveSessionPassphrase = pass;
+    saveAndRender('Restored from Google Drive.', { skipAutoBackup: true });
+    renderDriveStatus();
+  } catch (e) {
+    toast('Restore failed: ' + driveErrorMessage(e));
+  } finally { driveBusy = false; }
+}
+function driveDisconnect() {
+  driveAuth.token = null; driveAuth.expiresAt = 0;
+  driveSessionPassphrase = null;
+  driveClearPending();
+  state.settings.driveEmail = '';
+  persist(state);
+  renderDriveStatus();
+  toast('Disconnected from Google Drive. Your Drive backup file was left in place.');
+}
+function driveMaybeAutoBackup() {
+  if (!state.settings.driveAutoBackup) return;
+  if (!driveHasValidToken() || !driveSessionPassphrase) return;
+  driveBackupNow(driveSessionPassphrase, { silent: true });
 }
 
 /* ---------------- init (DOM only) ---------------- */
 function init() {
   state = loadState();
   applyTheme();
+  driveHandleAuthReturn();
   try {
     var mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
     if (mq && mq.addEventListener) mq.addEventListener('change', function () {
@@ -976,7 +1356,7 @@ function init() {
         var obj = JSON.parse(r.result);
         var err = validateBackup(obj);
         if (err) { toast(err); return; }
-        state = obj; ui.openGoal = null;
+        state = normalizeState(obj); ui.openGoal = null;
         saveAndRender('Backup restored.');
       } catch (e) { toast('Could not read that file.'); }
     };
@@ -989,6 +1369,33 @@ function init() {
       saveAndRender('All data erased.');
     }
   });
+
+  $('driveClientId').addEventListener('change', function () {
+    var v = $('driveClientId').value.trim();
+    if (v !== state.settings.driveClientId) {
+      state.settings.driveClientId = v;
+      state.settings.driveEmail = '';
+      driveAuth.token = null; driveAuth.expiresAt = 0;
+      persist(state); renderDriveStatus();
+    }
+  });
+  $('driveAutoBackup').addEventListener('change', function () {
+    var on = $('driveAutoBackup').checked;
+    if (on && !driveSessionPassphrase && !$('drivePassphrase').value) {
+      $('driveAutoBackup').checked = false;
+      toast('Enter your backup passphrase first — auto-backup keeps it in memory only until you close the app.');
+      renderDriveStatus();
+      return;
+    }
+    state.settings.driveAutoBackup = on;
+    if (!on) driveSessionPassphrase = null;
+    else if ($('drivePassphrase').value) driveSessionPassphrase = $('drivePassphrase').value;
+    persist(state); renderDriveStatus();
+  });
+  $('btnDriveConnect').addEventListener('click', function () { driveBeginAuth('connect'); });
+  $('btnDriveBackup').addEventListener('click', function () { driveBackupNow($('drivePassphrase').value); });
+  $('btnDriveRestore').addEventListener('click', function () { driveRestoreNow($('drivePassphrase').value); });
+  $('btnDriveDisconnect').addEventListener('click', function () { driveDisconnect(); });
 
   $('btnNotify').addEventListener('click', function () {
     if (typeof Notification === 'undefined') { toast('Notifications not supported here.'); return; }
@@ -1017,7 +1424,14 @@ if (typeof window !== 'undefined') {
     cardsCSV: cardsCSV, goalsCSV: goalsCSV,
     money: money, parseDate: parseDate, fmtDate: fmtDate, addDays: addDays,
     addDaysStr: addDaysStr, round2: round2, uid: uid, resolveTheme: resolveTheme,
-    BANKS: BANKS, bankOf: bankOf, dueDatesInMonth: dueDatesInMonth
+    BANKS: BANKS, bankOf: bankOf, dueDatesInMonth: dueDatesInMonth,
+    normalizeState: normalizeState,
+    DRIVE: DRIVE, encryptBackup: encryptBackup, decryptBackup: decryptBackup,
+    parseFragment: parseFragment, driveEscapeQuery: driveEscapeQuery,
+    driveFindFile: driveFindFile, driveGetFile: driveGetFile,
+    driveCreateFolder: driveCreateFolder, driveEnsureFolder: driveEnsureFolder,
+    driveUploadBackup: driveUploadBackup, driveDownloadBackup: driveDownloadBackup,
+    driveAbout: driveAbout, driveErrorMessage: driveErrorMessage
   };
   if (document.addEventListener) {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

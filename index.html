@@ -14,6 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Finance">
 <link rel="stylesheet" href="styles.css">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 /* Apply saved theme before first paint to avoid a flash. */
 try {
@@ -201,6 +202,25 @@ try {
         <label class="btn file-btn">Restore from backup<input type="file" id="restoreFile" accept="application/json,.json" hidden></label>
       </div>
       <p class="hint">Your data lives only in this browser (local-first). Keep a backup file somewhere safe.</p>
+    </div>
+    <div class="card">
+      <h2>Cloud backup (Google Drive)</h2>
+      <p class="hint">Encrypted backup in your own Google Drive, inside a “Finance App” folder. The backup is encrypted on this device with your passphrase before it is uploaded — Google cannot read it, and the passphrase is never stored. See GOOGLE-DRIVE-SETUP.md for the one-time setup.</p>
+      <label class="field"><span>Google OAuth client ID</span>
+        <input type="text" id="driveClientId" placeholder="Paste from Google Cloud Console" autocomplete="off" autocapitalize="off" spellcheck="false">
+      </label>
+      <label class="field"><span>Backup passphrase</span>
+        <input type="password" id="drivePassphrase" placeholder="Enter each time you back up or restore" autocomplete="off">
+      </label>
+      <p class="hint">Lose this passphrase and the cloud backup cannot be read — there is nothing to reset. Keep it somewhere safe, separate from the backup.</p>
+      <div class="btn-grid">
+        <button class="btn primary" id="btnDriveConnect">Connect Google Drive</button>
+        <button class="btn" id="btnDriveBackup">Back up now</button>
+        <button class="btn" id="btnDriveRestore">Restore from Drive</button>
+        <button class="btn ghost" id="btnDriveDisconnect">Disconnect</button>
+      </div>
+      <label class="check"><input type="checkbox" id="driveAutoBackup"> Auto-back up after each change</label>
+      <p class="hint" id="driveStatus"></p>
     </div>
     <div class="card danger-zone">
       <h2>Reset</h2>

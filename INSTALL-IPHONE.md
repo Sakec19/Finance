@@ -34,6 +34,7 @@ that browser on your phone.
 3. **Cards** → add each card: name, APR, due day, limit, minimum, balance.
 4. **Goals** → add your savings goal with target + target date.
 5. **Activity** → log today's income/expenses.
+6. **Cloud backup (optional)** → follow `GOOGLE-DRIVE-SETUP.md` to connect your Google Drive, then do one manual Back up now → Restore cycle to confirm it end to end. Note: cloud backup needs the HTTPS install (Path B), not the HTTP Wi-Fi preview.
 
 Once cards are in, the twice-monthly payment plan and the daily "due within
 3 days" banner run on real data — and Muse's scheduled reminders (1st and

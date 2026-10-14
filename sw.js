@@ -1,7 +1,7 @@
 /* Finance App service worker — offline-first app shell cache. */
-var CACHE = 'finance-app-v6';
+var CACHE = 'finance-app-v7';
 var ASSETS = [
-  './', './index.html', './styles.css', './app.js', './manifest.webmanifest',
+  './', './index.html', './styles.css', './card-designs.js', './app.js', './manifest.webmanifest',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
   './icons/banks/chase.png', './icons/banks/bankofamerica.png', './icons/banks/citi.png',
   './icons/banks/wellsfargo.png', './icons/banks/capitalone.png', './icons/banks/discover.png',
@@ -91,6 +91,9 @@ self.addEventListener('activate', function (e) {
 
 self.addEventListener('fetch', function (e) {
   if (e.request.method !== 'GET') return;
+  /* Never intercept cross-origin traffic (Google sign-in, Drive API, …) —
+     those must always go straight to the network and must never be cached. */
+  if (new URL(e.request.url).origin !== self.location.origin) return;
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then(function (hit) {
       if (hit) return hit;

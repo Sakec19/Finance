@@ -273,4 +273,166 @@ t('loadState: existing cards default to generic issuer', () => {
   assert.strictEqual(back.cards[0].bankId, 'generic');
 });
 
-console.log('\nAll ' + passed + ' tests passed.');
+// ---- encrypted cloud backup (Google Drive) ----
+t('normalizeState: fills defaults, keeps valid drive settings', () => {
+  const old = F.normalizeState({ transactions: [], accounts: [], cards: [], goals: [], settings: { theme: 'dark' } });
+  assert.strictEqual(old.settings.theme, 'dark');
+  assert.strictEqual(old.settings.driveClientId, '');
+  assert.strictEqual(old.settings.driveAutoBackup, false);
+  const withDrive = F.normalizeState({ transactions: [], accounts: [], cards: [], goals: [],
+    settings: { driveClientId: 'abc.apps.googleusercontent.com', driveAutoBackup: true, driveFolderId: 'f1', driveFileId: 'x1', driveLastBackupAt: '2026-10-13T00:00:00.000Z', driveEmail: 'a@b.c' } });
+  assert.strictEqual(withDrive.settings.driveClientId, 'abc.apps.googleusercontent.com');
+  assert.strictEqual(withDrive.settings.driveAutoBackup, true);
+  assert.strictEqual(withDrive.settings.driveFolderId, 'f1');
+  assert.strictEqual(withDrive.settings.driveEmail, 'a@b.c');
+  assert.strictEqual(F.normalizeState(null).settings.theme, 'system');
+  assert.strictEqual(F.normalizeState({}).settings.leadDays, 3);
+});
+
+t('parseFragment: access token + state, error hash, empty', () => {
+  const p = F.parseFragment('#access_token=ya29.abc&token_type=Bearer&expires_in=3600&state=n1');
+  assert.strictEqual(p.access_token, 'ya29.abc');
+  assert.strictEqual(p.expires_in, '3600');
+  assert.strictEqual(p.state, 'n1');
+  assert.deepStrictEqual(F.parseFragment('#error=access_denied'), { error: 'access_denied' });
+  assert.deepStrictEqual(F.parseFragment(''), {});
+});
+
+// ---- async tests (crypto + Drive API) ----
+const asyncTests = [];
+function ta(name, fn) { asyncTests.push({ name, fn }); }
+
+ta('encryptBackup/decryptBackup: round-trip', async () => {
+  const st = blank();
+  st.accounts.push({ id: 'a1', name: 'Checking', openingBalance: 100 });
+  const env = await F.encryptBackup(st, 'correct horse');
+  const back = await F.decryptBackup(env, 'correct horse');
+  assert.deepStrictEqual(back.accounts, st.accounts);
+});
+
+ta('encryptBackup: ciphertext hides plaintext', async () => {
+  const st = blank();
+  st.accounts.push({ id: 'a1', name: 'SECRET-ACCOUNT-NAME', openingBalance: 1 });
+  const env = await F.encryptBackup(st, 'pw');
+  assert.ok(!env.includes('SECRET-ACCOUNT-NAME'), 'no plaintext in envelope');
+  const parsed = JSON.parse(env);
+  assert.strictEqual(parsed.v, 1);
+  assert.ok(parsed.salt && parsed.iv && parsed.data);
+});
+
+ta('decryptBackup: wrong passphrase fails', async () => {
+  const env = await F.encryptBackup(blank(), 'right');
+  await assert.rejects(F.decryptBackup(env, 'wrong'), /Wrong passphrase/);
+});
+
+ta('decryptBackup: tampered ciphertext fails', async () => {
+  const env = await F.encryptBackup(blank(), 'pw');
+  const parsed = JSON.parse(env);
+  parsed.data = (parsed.data[0] === 'A' ? 'B' : 'A') + parsed.data.slice(1);
+  await assert.rejects(F.decryptBackup(JSON.stringify(parsed), 'pw'), /Wrong passphrase/);
+});
+
+ta('decryptBackup: rejects non-backup input', async () => {
+  await assert.rejects(F.decryptBackup('not json', 'pw'), /not a Finance App cloud backup/);
+  await assert.rejects(F.decryptBackup(JSON.stringify({ v: 99 }), 'pw'), /not a Finance App cloud backup/);
+});
+
+ta('encryptBackup: empty passphrase rejected', async () => {
+  await assert.rejects(F.encryptBackup(blank(), ''), /passphrase/);
+});
+
+// Mock fetch for Drive API tests: routes are tried in order.
+function driveMock(routes) {
+  const calls = [];
+  const fetchImpl = async (url, opts) => {
+    calls.push({ url, opts: opts || {} });
+    for (const r of routes) {
+      if (r.match(url, opts || {})) {
+        return {
+          ok: r.ok !== false, status: r.status || 200,
+          json: async () => (typeof r.json === 'function' ? r.json(url, opts) : r.json),
+          text: async () => (typeof r.text === 'function' ? r.text(url, opts) : (r.text || '')),
+        };
+      }
+    }
+    throw new Error('unexpected Drive call: ' + url);
+  };
+  return { fetchImpl, calls };
+}
+
+ta('driveFindFile: returns match, null when absent, sends auth', async () => {
+  const m = driveMock([{ match: (u) => u.includes('/drive/v3/files?q='), json: { files: [{ id: 'file-1', name: 'finance-backup.enc.json' }] } }]);
+  const found = await F.driveFindFile('tok', 'finance-backup.enc.json', m.fetchImpl);
+  assert.strictEqual(found.id, 'file-1');
+  const q = decodeURIComponent(m.calls[0].url);
+  assert.ok(q.includes("name = 'finance-backup.enc.json'") && q.includes('trashed = false'));
+  assert.strictEqual(m.calls[0].opts.headers.Authorization, 'Bearer tok');
+  const m2 = driveMock([{ match: () => true, json: { files: [] } }]);
+  assert.strictEqual(await F.driveFindFile('tok', 'nope.json', m2.fetchImpl), null);
+});
+
+ta('driveFindFile: surfaces Drive errors with status', async () => {
+  const m = driveMock([{ match: () => true, ok: false, status: 401, json: { error: { message: 'Invalid Credentials' } } }]);
+  await assert.rejects(F.driveFindFile('bad', 'x.json', m.fetchImpl), /Google Drive error 401: Invalid Credentials/);
+});
+
+ta('driveEnsureFolder: reuses known id, finds by name, creates when missing', async () => {
+  const m = driveMock([
+    { match: (u) => u.includes('/files/known-id'), json: { id: 'known-id', trashed: false, mimeType: 'application/vnd.google-apps.folder' } },
+  ]);
+  assert.strictEqual(await F.driveEnsureFolder('tok', m.fetchImpl, 'known-id'), 'known-id');
+  assert.strictEqual(m.calls.length, 1);
+
+  const m2 = driveMock([
+    { match: (u) => u.includes('/files?q='), json: { files: [{ id: 'found-folder' }] } },
+  ]);
+  assert.strictEqual(await F.driveEnsureFolder('tok', m2.fetchImpl, ''), 'found-folder');
+
+  const m3 = driveMock([
+    { match: (u) => u.includes('/files/stale-id'), ok: false, status: 404, json: { error: { message: 'Not Found' } } },
+    { match: (u) => u.includes('/files?q='), json: { files: [] } },
+    { match: (u, o) => u.includes('/drive/v3/files') && o.method === 'POST', json: { id: 'new-folder' } },
+  ]);
+  assert.strictEqual(await F.driveEnsureFolder('tok', m3.fetchImpl, 'stale-id'), 'new-folder');
+  const createCall = m3.calls.find((c) => c.opts.method === 'POST');
+  assert.strictEqual(JSON.parse(createCall.opts.body).mimeType, 'application/vnd.google-apps.folder');
+});
+
+ta('driveUploadBackup: create uses multipart, update uses PATCH media', async () => {
+  const m = driveMock([
+    { match: (u) => u.includes('uploadType=multipart'), json: { id: 'created-1' } },
+  ]);
+  const id = await F.driveUploadBackup('tok', 'folder-1', null, '{"cipher":"x"}', m.fetchImpl);
+  assert.strictEqual(id, 'created-1');
+  const call = m.calls[0];
+  assert.ok(call.url.includes('/upload/drive/v3/files?uploadType=multipart'));
+  assert.ok(call.opts.headers['Content-Type'].startsWith('multipart/related; boundary='));
+  assert.ok(call.opts.body.includes('"name":"finance-backup.enc.json"'));
+  assert.ok(call.opts.body.includes('"parents":["folder-1"]'));
+  assert.ok(call.opts.body.includes('{"cipher":"x"}'));
+
+  const m2 = driveMock([
+    { match: (u, o) => u.includes('uploadType=media') && o.method === 'PATCH', json: { id: 'existing-1' } },
+  ]);
+  const id2 = await F.driveUploadBackup('tok', 'folder-1', 'existing-1', '{"cipher":"y"}', m2.fetchImpl);
+  assert.strictEqual(id2, 'existing-1');
+  assert.strictEqual(m2.calls[0].opts.body, '{"cipher":"y"}');
+});
+
+ta('driveDownloadBackup + driveAbout', async () => {
+  const m = driveMock([
+    { match: (u) => u.includes('alt=media'), text: 'ENVELOPE' },
+    { match: (u) => u.includes('/about'), json: { user: { emailAddress: 'me@example.com' } } },
+  ]);
+  assert.strictEqual(await F.driveDownloadBackup('tok', 'file-9', m.fetchImpl), 'ENVELOPE');
+  assert.strictEqual((await F.driveAbout('tok', m.fetchImpl)).emailAddress, 'me@example.com');
+});
+
+(async function () {
+  for (const at of asyncTests) {
+    await at.fn();
+    passed++;
+    console.log('ok -', at.name);
+  }
+  console.log('\nAll ' + passed + ' tests passed.');
+})().catch((e) => { console.error(e); process.exit(1); });

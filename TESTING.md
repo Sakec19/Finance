@@ -1,6 +1,6 @@
 # Tested vs untested
 
-Run: `node test-pwa.js` (22 tests, Node 24).
+Run: `node test-pwa.js` (35 tests, Node 24).
 
 ## Tested (automated, all passing)
 
@@ -10,10 +10,14 @@ Run: `node test-pwa.js` (22 tests, Node 24).
 - Savings roadmap: per-day/week/month amounts, milestone table ending at the target, goal-reached and overdue states.
 - CSV: UTF-8 BOM, CRLF endings, quoting/escaping of commas, quotes and newlines; all four exports (transactions, accounts, cards, goals).
 - Backup validation (accepts good files, rejects malformed ones) and localStorage persist/load round-trip.
+- State normalization: older backups without newer settings fields load with safe defaults; valid Drive settings survive a restore.
+- Encrypted cloud backup: encrypt/decrypt round-trip; ciphertext contains no plaintext; wrong passphrase and tampered ciphertext are rejected; non-backup input is rejected; empty passphrase is rejected.
+- Google Drive API (mock fetch): file search query + auth header; error responses surfaced with status; folder reuse / find / create (including stale-id recovery); backup upload create (multipart) and update (PATCH media) bodies; download and account lookup.
+- Sign-in return parsing: access token + state extracted from the URL fragment; error and empty fragments handled.
 - Local reminder logic: urgent card items, goal-due-soon items, silence when nothing is due.
 - Card designs: registry has 81 unique designs across 14 groups and every icon file exists on disk; unknown design falls back to generic; existing cards migrate to the generic issuer.
 - Calendar: `dueDatesInMonth` maps cards to days, clamps to month length, handles empty lists.
-- Static checks: `manifest.webmanifest` is valid JSON; all 79 element IDs used by `app.js` exist in `index.html`; all 90 service-worker cached assets exist on disk; all 20 CSS variables used are defined in both themes; `node --check` passes on all JS.
+- Static checks: `manifest.webmanifest` is valid JSON; all 87 element IDs used by `app.js` exist in `index.html`; all 102 service-worker cached assets exist on disk; all 20 CSS variables used are defined in both themes; `node --check` passes on all JS.
 - Theme logic: `resolveTheme` (explicit light/dark, system→device, unknown→device fallback) and theme persistence/migration through `loadState`.
 
 ## Untested (needs a real device/browser)
@@ -23,3 +27,4 @@ Run: `node test-pwa.js` (22 tests, Node 24).
 - **Notification API** — permission prompt and notification display depend on the user's browser/OS and were not tested; in-app reminder banners are the fallback and are logic-tested.
 - **Visual layout** — no screenshot/render audit was run; the CSS is mobile-first and hand-checked, not device-verified.
 - **File downloads/uploads** (CSV, backup, restore) — the code paths are standard Blob/FileReader flows but were not clicked through in a browser.
+- **Live Google sign-in and Drive round-trip** — encryption and Drive API request shapes are automated-tested against mocks, but no real Google sign-in, upload, or restore has been run yet; that needs a registered OAuth client ID and a manual back-up → restore cycle after setup (see GOOGLE-DRIVE-SETUP.md).
