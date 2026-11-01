@@ -774,6 +774,7 @@ function nameOf(list, id) {
 }
 function showTab(name) {
   ui.tab = name;
+  if (name !== 'overview') { var fb = $('btnAdd'); if (fb) { fb.setAttribute('aria-label', 'Add entry'); fb.title = 'Add entry'; } }
   document.querySelectorAll('.tabbar button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === name); });
   document.querySelectorAll('.view').forEach(function (v) { v.classList.toggle('active', v.id === 'view-' + name); });
   render();
@@ -890,6 +891,12 @@ function renderBalanceCarousel(bal) {
       var ot = $('countryOpenTitle');
       if (ot) ot.textContent = oc.flag + ' ' + oc.country + ' \u00B7 ' + sel;
     }
+  }
+  var fab = $('btnAdd');
+  if (fab) {
+    var fabLabel = open ? 'Add to ' + currencyOf(sel).country : 'Add a country';
+    fab.setAttribute('aria-label', fabLabel);
+    fab.title = fabLabel;
   }
 }
 
@@ -1706,7 +1713,56 @@ function init() {
   document.querySelectorAll('.tabbar button').forEach(function (b) {
     b.addEventListener('click', function () { showTab(b.dataset.tab); });
   });
-  $('btnAdd').addEventListener('click', function () { openTxModal(null); });
+  /* The ＋ button is context-aware: on the main screen it adds a country;
+     inside an opened country it adds details to that country; on every
+     other tab it adds a transaction, as before. */
+  var fabMode = 'country', fabCurrency = null;
+  function fillCountryPick() {
+    var selEl = $('addCountrySelect'); if (!selEl) return;
+    var present = balanceCodes(recompute(state));
+    selEl.innerHTML = CURRENCIES.map(function (c) {
+      return '<option value="' + c.code + '">' + c.flag + ' ' + esc(c.country) + ' \u2014 ' + c.code + '</option>';
+    }).join('');
+    var firstNew = CURRENCIES.map(function (c) { return c.code; }).filter(function (code) { return present.indexOf(code) < 0; })[0];
+    selEl.value = firstNew || state.settings.defaultCurrency || 'USD';
+  }
+  function openAddChooser() {
+    if (ui.countryOpen) {
+      fabMode = 'inside';
+      fabCurrency = selectedCurrency(recompute(state));
+      var c = currencyOf(fabCurrency);
+      $('addCountryTitle').textContent = 'Add to ' + c.country;
+      $('addCountryPick').classList.add('hidden');
+      $('addChoiceTx').classList.remove('hidden');
+      $('addChoiceCard').classList.remove('hidden');
+      $('addChoiceGoal').classList.remove('hidden');
+    } else {
+      fabMode = 'country'; fabCurrency = null;
+      $('addCountryTitle').textContent = 'Add a country';
+      $('addCountryPick').classList.remove('hidden');
+      /* A country is created by an account or an investment — the other
+         choices need the country to exist first, so they stay hidden. */
+      $('addChoiceTx').classList.add('hidden');
+      $('addChoiceCard').classList.add('hidden');
+      $('addChoiceGoal').classList.add('hidden');
+      fillCountryPick();
+    }
+    openModal('modalAddCountry');
+  }
+  function chosenCountry() { return fabMode === 'inside' ? fabCurrency : $('addCountrySelect').value; }
+  function wireChoice(id, fn) {
+    var b = $(id); if (!b) return;
+    b.addEventListener('click', function () { var code = chosenCountry(); closeModals(); fn(code); });
+  }
+  wireChoice('addChoiceTx', function () { openTxModal(null); });
+  wireChoice('addChoiceAccount', function (code) { openAccountModal(null); setCurrencySelect('acctCurrency', code); });
+  wireChoice('addChoiceCard', function (code) { openCardModal(null); setCurrencySelect('cardCurrency', code); });
+  wireChoice('addChoiceInvestment', function (code) { openInvestmentModal(null); setCurrencySelect('invCurrency', code); });
+  wireChoice('addChoiceGoal', function (code) { openGoalModal(null); setCurrencySelect('goalCurrency', code); });
+  $('btnAdd').addEventListener('click', function () {
+    if (ui.tab === 'overview') openAddChooser();
+    else openTxModal(null);
+  });
   $('btnSettings').addEventListener('click', function () { showTab('settings'); });
   $('activityFilter').addEventListener('change', function () { ui.activityFilter = $('activityFilter').value; renderActivity(); });
   $('btnAddCard').addEventListener('click', function () { openCardModal(null); });

@@ -59,7 +59,7 @@ html[data-theme="light"] { background: #F7F6F0; }
     </div>
     <div class="balance-carousel" id="balanceCarousel"></div>
     <div class="carousel-dots" id="balanceDots"></div>
-    <p class="hint center-hint" id="homeIntro">Balances open hidden — tap 👁 in the header to view them. Swipe to preview a country below, or tap a country to open it: the carousel steps aside, its details take the whole page, and its values are shown. Only countries where you have bank accounts or investments appear here — one per currency, always kept separate, never converted or added together.</p>
+    <p class="hint center-hint" id="homeIntro">Balances open hidden — tap 👁 in the header to view them. Tap ＋ to add a country. Swipe to preview a country below, or tap a country to open it: the carousel steps aside, its details take the whole page, and its values are shown. Only countries where you have bank accounts or investments appear here — one per currency, always kept separate, never converted or added together.</p>
 
     <div class="country-open-bar hidden" id="countryOpenBar">
       <button id="btnCountryBack" class="back-btn" aria-label="Back to all countries">‹ All countries</button>
@@ -429,6 +429,26 @@ html[data-theme="light"] { background: #F7F6F0; }
         <button type="submit" class="btn primary">Save</button>
       </div>
     </form>
+  </div>
+</div>
+
+<div class="modal hidden" id="modalAddCountry" role="dialog" aria-modal="true" aria-label="Add">
+  <div class="sheet">
+    <h2 id="addCountryTitle">Add a country</h2>
+    <div id="addCountryPick">
+      <label class="field"><span>Country / currency</span><select id="addCountrySelect"></select></label>
+      <p class="hint">A country joins your home screen once it has a bank account or an investment. Pick the country, then add its first one.</p>
+    </div>
+    <div class="choice-list">
+      <button type="button" class="btn choice-btn" id="addChoiceTx">⇄&ensp;Transaction</button>
+      <button type="button" class="btn choice-btn" id="addChoiceAccount">🏦&ensp;Bank account</button>
+      <button type="button" class="btn choice-btn" id="addChoiceCard">▭&ensp;Credit card</button>
+      <button type="button" class="btn choice-btn" id="addChoiceInvestment">📈&ensp;Investment</button>
+      <button type="button" class="btn choice-btn" id="addChoiceGoal">◎&ensp;Savings goal</button>
+    </div>
+    <div class="row-end">
+      <button type="button" class="btn ghost" data-close>Cancel</button>
+    </div>
   </div>
 </div>
 
