@@ -1,4 +1,4 @@
-# Finance App — local-first installable web app (PWA)
+# MintNomad — local-first installable web app (PWA)
 
 A calm personal finance tracker. All data stays in the browser (localStorage). No account, no server.
 

@@ -1,4 +1,4 @@
-/* Finance App — local-first PWA. All data stays in this browser (localStorage). */
+/* MintNomad — local-first PWA. All data stays in this browser (localStorage). */
 (function () {
 'use strict';
 
@@ -1819,7 +1819,7 @@ function init() {
   // local reminders on every open
   var rems = dueReminders(state, todayStr());
   var urgent = rems.filter(function (r) { return r.urgent; });
-  if (urgent.length) notifyUser('Finance App', urgent[0].text);
+  if (urgent.length) notifyUser('MintNomad', urgent[0].text);
 
   render();
 }

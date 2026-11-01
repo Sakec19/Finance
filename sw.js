@@ -1,8 +1,8 @@
-/* Finance App service worker — offline-first app shell cache. */
-var CACHE = 'finance-app-v11';
+/* MintNomad service worker — offline-first app shell cache. */
+var CACHE = 'finance-app-v16';
 var ASSETS = [
   './', './index.html', './styles.css', './card-designs.js', './app.js', './manifest.webmanifest',
-  './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
+  './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
   './icons/banks/chase.png', './icons/banks/bankofamerica.png', './icons/banks/citi.png',
   './icons/banks/wellsfargo.png', './icons/banks/capitalone.png', './icons/banks/discover.png',
   './icons/banks/amex.png', './icons/banks/usbank.png', './icons/banks/pnc.png',
