@@ -880,21 +880,20 @@ function renderBalanceCarousel(bal) {
       return '<button class="cdot' + (code === sel ? ' on' : '') + '" data-slide="' + i + '" aria-label="Show ' + esc(code) + ' balance"></button>';
     }).join('');
   }
-  var hint = $('balanceHint');
-  if (hint) hint.classList.toggle('hidden', codes.length <= 1);
   if (ui.carouselIndex && ui.carouselIndex >= codes.length) ui.carouselIndex = 0;
 
-  /* Open-country mode: once a country is opened, the carousel steps aside
-     and the details take the whole page (opened from the panel tap in init). */
+  /* The main screen is the country carousel alone. The detail cards
+     (history, spending, upcoming, savings pace) belong to an OPENED
+     country: hidden on the main screen, shown full-page once a country
+     is opened from its panel (see init), and hidden again on return. */
   var open = !!ui.countryOpen;
   var ov = $('view-overview');
   if (ov) ov.classList.toggle('country-open', open);
   wrap.classList.toggle('hidden', open);
   if (dots) dots.classList.toggle('hidden', open);
-  var head = document.querySelector('.country-head');
-  if (head) head.classList.toggle('hidden', open);
-  var intro = $('homeIntro');
-  if (intro) intro.classList.toggle('hidden', open);
+  ['cardHistory', 'cardSpending', 'cardUpcoming', 'cardPace'].forEach(function (id) {
+    var el = $(id); if (el) el.classList.toggle('hidden', !open);
+  });
   var bar = $('countryOpenBar');
   if (bar) {
     bar.classList.toggle('hidden', !open);

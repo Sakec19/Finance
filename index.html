@@ -53,20 +53,15 @@ html[data-theme="light"] { background: #F7F6F0; }
 <main id="main">
   <!-- OVERVIEW -->
   <section id="view-overview" class="view active" aria-label="Overview">
-    <div class="country-head">
-      <h2>Balances by country</h2>
-      <span class="muted-note hidden" id="balanceHint">Swipe for more countries →</span>
-    </div>
     <div class="balance-carousel" id="balanceCarousel"></div>
     <div class="carousel-dots" id="balanceDots"></div>
-    <p class="hint center-hint" id="homeIntro">Balances open hidden — tap 👁 in the header to view them. Tap ＋ to add a country. Each card's 👁 shows or hides just that country. Swipe to preview a country below, or tap a country to open it: the carousel steps aside, its details take the whole page, and its values are shown. Only countries where you have bank accounts or investments appear here — one per currency, always kept separate, never converted or added together.</p>
 
     <div class="country-open-bar hidden" id="countryOpenBar">
       <button id="btnCountryBack" class="back-btn" aria-label="Back to all countries">‹ All countries</button>
       <span class="country-open-title" id="countryOpenTitle"></span>
     </div>
 
-    <div class="card">
+    <div class="card" id="cardHistory">
       <div class="row-between">
         <h2>Transaction history</h2>
         <button class="pill pill-btn" id="btnHomeTxAll">View all</button>
@@ -74,7 +69,7 @@ html[data-theme="light"] { background: #F7F6F0; }
       <div id="homeTxList" class="stack"></div>
     </div>
 
-    <div class="card">
+    <div class="card" id="cardSpending">
       <div class="row-between">
         <h2>Spending by category</h2>
         <span class="pill">Expenses</span>
@@ -84,7 +79,7 @@ html[data-theme="light"] { background: #F7F6F0; }
       <div id="catLegend" class="legend"></div>
     </div>
 
-    <div class="card">
+    <div class="card" id="cardUpcoming">
       <div class="row-between">
         <h2>Upcoming checklist</h2>
         <span class="pill">Plan ahead</span>
@@ -92,7 +87,7 @@ html[data-theme="light"] { background: #F7F6F0; }
       <div id="upcomingList" class="stack"></div>
     </div>
 
-    <div class="card">
+    <div class="card" id="cardPace">
       <h2>Savings pace</h2>
       <div id="savingsPace" class="stack"></div>
     </div>
