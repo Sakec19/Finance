@@ -915,18 +915,6 @@ function render() {
   var bal = recompute(state);
   updateBalanceToggle();
   renderBalanceCarousel(bal);
-  var hb = $('headerBalance');
-  var byCur = totalsByCurrency(state, bal);
-  var hbCodes = Object.keys(byCur);
-  if (hbCodes.length <= 1) {
-    hb.textContent = money(hbCodes.length ? byCur[hbCodes[0]].total : 0, hbCodes[0] || state.settings.defaultCurrency);
-    hb.classList.remove('multi');
-  } else {
-    hb.innerHTML = hbCodes.map(function (code) {
-      return '<span class="hb-line">' + esc(code) + ' ' + money(byCur[code].total, code) + '</span>';
-    }).join('');
-    hb.classList.add('multi');
-  }
 
   // reminders banner
   var rems = dueReminders(state, todayStr());
