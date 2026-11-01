@@ -45,6 +45,8 @@ function entityCurrency(entity) {
   return (entity && isValidCurrency(entity.currency)) ? entity.currency : 'USD';
 }
 var balanceHidden = false;
+var homeReveal = false; /* true only while renderOverview draws an OPENED country:
+                           its detail values show even when balances are hidden */
 function setBalanceHidden(v) { balanceHidden = !!v; }
 function isBalanceHidden() { return balanceHidden; }
 /* Digit grouping follows each currency's home convention:
@@ -61,7 +63,7 @@ function groupIndian(intStr) {
 }
 function money(n, cur) {
   var c = currencyOf(cur || 'USD');
-  if (balanceHidden) return c.symbol + '\u2022\u2022\u2022\u2022\u2022\u2022';
+  if (balanceHidden && !homeReveal) return c.symbol + '\u2022\u2022\u2022\u2022\u2022\u2022';
   n = +n || 0;
   var sign = n < 0 ? '-' : '';
   var fixed = Math.abs(n).toFixed(c.decimals);
@@ -756,7 +758,7 @@ function download(name, content, mime) {
 
 /* ---------------- app state + rendering ---------------- */
 var state = null;
-var ui = { tab: 'overview', periodView: 'monthly', periodRef: todayStr(), activityFilter: 'all', openGoal: null, calRef: todayStr(), calDay: null, chartCurrency: null, carouselIndex: 0, selectedCurrency: null };
+var ui = { tab: 'overview', periodView: 'monthly', periodRef: todayStr(), activityFilter: 'all', openGoal: null, calRef: todayStr(), calDay: null, chartCurrency: null, carouselIndex: 0, selectedCurrency: null, countryOpen: false };
 var INCOME_CATS = ['Paycheck', 'Freelance', 'Interest', 'Gift', 'Other'];
 var EXPENSE_CATS = ['Groceries', 'Dining', 'Transport', 'Housing', 'Utilities', 'Health', 'Shopping', 'Entertainment', 'Travel', 'Fees', 'Other'];
 var CHART_COLORS = ['#0E7C6B', '#35B06F', '#E3B341', '#E07856', '#4E7FA6', '#8A6FD1', '#C2547A', '#7FA88F'];
@@ -859,7 +861,7 @@ function renderBalanceCarousel(bal) {
     var c = currencyOf(code);
     var nAcct = state.accounts.filter(function (a) { return entityCurrency(a) === code; }).length;
     var nInv = (state.investments || []).filter(function (inv) { return entityCurrency(inv) === code; }).length;
-    return '<div class="balance-slide g' + (idx % 6) + (code === sel ? ' sel' : '') + '" data-cur="' + esc(code) + '" role="button" tabindex="0" aria-label="Show ' + esc(c.country) + ' snapshot">' +
+    return '<div class="balance-slide g' + (idx % 6) + (code === sel ? ' sel' : '') + '" data-cur="' + esc(code) + '" role="button" tabindex="0" aria-label="Open ' + esc(c.country) + '">' +
       '<div class="bs-top"><span class="bs-flag">' + c.flag + '</span><span class="bs-country">' + esc(c.country) + '</span><span class="bs-code">' + esc(code) + '</span></div>' +
       '<div><div class="bs-label">Total balance</div>' +
       '<div class="bs-value">' + money(t.total, code) + '</div>' +
@@ -876,6 +878,27 @@ function renderBalanceCarousel(bal) {
   var hint = $('balanceHint');
   if (hint) hint.classList.toggle('hidden', codes.length <= 1);
   if (ui.carouselIndex && ui.carouselIndex >= codes.length) ui.carouselIndex = 0;
+
+  /* Open-country mode: once a country is opened, the carousel steps aside
+     and the details take the whole page (opened from the panel tap in init). */
+  var open = !!ui.countryOpen;
+  var ov = $('view-overview');
+  if (ov) ov.classList.toggle('country-open', open);
+  wrap.classList.toggle('hidden', open);
+  if (dots) dots.classList.toggle('hidden', open);
+  var head = document.querySelector('.country-head');
+  if (head) head.classList.toggle('hidden', open);
+  var intro = $('homeIntro');
+  if (intro) intro.classList.toggle('hidden', open);
+  var bar = $('countryOpenBar');
+  if (bar) {
+    bar.classList.toggle('hidden', !open);
+    if (open) {
+      var oc = currencyOf(sel);
+      var ot = $('countryOpenTitle');
+      if (ot) ot.textContent = oc.flag + ' ' + oc.country + ' \u00B7 ' + sel;
+    }
+  }
 }
 
 function render() {
@@ -914,6 +937,7 @@ function snapshotTile(label, valueHtml, subHtml, cls) {
   return '<div class="snap-tile ' + (cls || '') + '"><span class="t-label">' + label + '</span>' + valueHtml + (subHtml || '') + '</div>';
 }
 function renderOverview(bal) {
+  homeReveal = !!ui.countryOpen; /* an opened country shows its values */
   var sel = selectedCurrency(bal);
   var cur = currencyOf(sel);
   var t = totalsByCurrency(state, bal)[sel] || { accounts: 0, investments: 0, total: 0 };
@@ -993,6 +1017,7 @@ function renderOverview(bal) {
     else if (!rm.overdue) pace.push('<div class="item"><div class="main"><div class="title">' + esc(g.name) + '</div><div class="sub">' + money(rm.perDay, entityCurrency(g)) + '/day · ' + rm.daysLeft + ' days left</div></div><div class="amt">' + money(rm.remaining, entityCurrency(g)) + ' to go</div></div>');
   });
   $('savingsPace').innerHTML = pace.length ? pace.join('') : '<div class="empty">No savings goals yet.</div>';
+  homeReveal = false;
 }
 
 function txLine(t) {
@@ -1649,18 +1674,37 @@ function init() {
     var i = Math.max(0, Math.round(bcEl.scrollLeft / carouselStep()));
     if (i !== ui.carouselIndex) selectSlide(i, false);
   });
+  function openCountry(code) {
+    var balNow = recompute(state);
+    var codes = balanceCodes(balNow);
+    var i = codes.indexOf(code);
+    if (i < 0) return;
+    ui.carouselIndex = i;
+    ui.selectedCurrency = code;
+    ui.countryOpen = true;
+    render();
+    try { window.scrollTo(0, 0); } catch (e) {}
+  }
+  function closeCountry() {
+    ui.countryOpen = false;
+    render();
+    try { window.scrollTo(0, 0); } catch (e) {}
+    if (bcEl && bcEl.scrollTo) { try { bcEl.scrollTo({ left: carouselStep() * (ui.carouselIndex || 0) }); } catch (e) {} }
+  }
   if (bcEl) bcEl.addEventListener('click', function (e) {
     var slide = e.target && e.target.closest ? e.target.closest('.balance-slide') : null;
     if (!slide) return;
-    selectSlide(balanceCodes(recompute(state)).indexOf(slide.dataset.cur), true);
+    openCountry(slide.dataset.cur);
   });
   if (bcEl) bcEl.addEventListener('keydown', function (e) {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     var slide = e.target && e.target.closest ? e.target.closest('.balance-slide') : null;
     if (!slide) return;
     e.preventDefault();
-    selectSlide(balanceCodes(recompute(state)).indexOf(slide.dataset.cur), true);
+    openCountry(slide.dataset.cur);
   });
+  var backBtn = $('btnCountryBack');
+  if (backBtn) backBtn.addEventListener('click', closeCountry);
   var dotsEl = $('balanceDots');
   if (dotsEl) dotsEl.addEventListener('click', function (e) {
     var btn = e.target && e.target.closest ? e.target.closest('[data-slide]') : null;

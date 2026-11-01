@@ -59,7 +59,12 @@ html[data-theme="light"] { background: #F7F6F0; }
     </div>
     <div class="balance-carousel" id="balanceCarousel"></div>
     <div class="carousel-dots" id="balanceDots"></div>
-    <p class="hint center-hint">Balances open hidden — tap 👁 in the header to view them. Tap a country to see its snapshot below. Only countries where you have bank accounts or investments appear here — one per currency, always kept separate, never converted or added together.</p>
+    <p class="hint center-hint" id="homeIntro">Balances open hidden — tap 👁 in the header to view them. Swipe to preview a country below, or tap a country to open it: the carousel steps aside, its details take the whole page, and its values are shown. Only countries where you have bank accounts or investments appear here — one per currency, always kept separate, never converted or added together.</p>
+
+    <div class="country-open-bar hidden" id="countryOpenBar">
+      <button id="btnCountryBack" class="back-btn" aria-label="Back to all countries">‹ All countries</button>
+      <span class="country-open-title" id="countryOpenTitle"></span>
+    </div>
 
     <div class="card total-band">
       <div class="tb-label" id="selTotalLabel">Total balance</div>
