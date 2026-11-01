@@ -1,2008 +1,248 @@
-/* MintNomad — local-first PWA. All data stays in this browser (localStorage). */
-(function () {
 'use strict';
+const RECIPES=[
+['Tomato Chickpea Skillet','🍅','dinner',20,450,19,59,15,['tomato','chickpeas','onion','garlic','olive oil'],2.6,'vegan','Fiber-rich and satisfying'],
+['Spinach Egg Scramble','🍳','breakfast',12,280,20,9,18,['eggs','spinach','onion','olive oil'],2.1,'egg','Protein and iron'],
+['Creamy Oatmeal','🥣','breakfast',10,310,11,48,9,['oats','milk','banana'],1.3,'vegetarian','Slow-release energy'],
+['Overnight Berry Oats','🫐','breakfast',5,350,12,53,10,['oats','berries','yogurt'],2.4,'vegetarian','Fiber and antioxidants'],
+['Avocado Toast','🥑','breakfast',10,340,10,35,19,['bread','avocado','lemon'],2.7,'vegan','Healthy unsaturated fats'],
+['Lentil Vegetable Soup','🥕','lunch',35,380,21,58,7,['lentils','carrot','onion','tomato','garlic'],2.2,'vegan','Plant protein and fiber'],
+['Chickpea Cucumber Salad','🥗','lunch',15,410,16,45,18,['chickpeas','cucumber','tomato','lemon','olive oil'],2.8,'vegan','Fiber and vitamin C'],
+['Cheesy Bean Quesadilla','🫓','lunch',15,490,23,51,21,['tortilla','black beans','cheese','onion'],3.0,'vegetarian','Protein and calcium'],
+['Vegetable Fried Rice','🍚','dinner',25,480,12,76,13,['rice','carrot','peas','onion','soy sauce'],2.1,'vegan','Vegetables and energy'],
+['Pasta with Tomato Sauce','🍝','dinner',25,510,18,83,11,['pasta','tomato','garlic','olive oil'],2.6,'vegan','Lycopene and energy'],
+['Black Bean Burrito Bowl','🌯','dinner',30,560,22,78,16,['rice','black beans','corn','tomato','avocado'],3.7,'vegan','Protein and potassium'],
+['Garlic Mushroom Pasta','🍄','dinner',25,520,19,70,18,['pasta','mushrooms','garlic','milk','cheese'],3.9,'vegetarian','B vitamins and calcium'],
+['Tofu Stir Fry','🥦','dinner',25,440,26,42,19,['tofu','broccoli','carrot','soy sauce','rice'],4.2,'vegan','Plant protein and iron'],
+['Veggie Omelet','🥚','breakfast',15,330,24,10,21,['eggs','pepper','onion','cheese'],2.5,'egg','High-quality protein'],
+['Chicken Rice Bowl','🍗','dinner',30,590,40,62,17,['chicken','rice','broccoli','olive oil'],4.7,'meat','Protein-rich dinner'],
+['Tuna Sandwich','🥪','lunch',10,400,29,39,14,['tuna','bread','yogurt','lettuce'],3.5,'fish','Omega-3 and protein'],
+['Lentil Curry','🍛','dinner',40,500,23,71,14,['lentils','tomato','onion','coconut milk','rice'],3.0,'vegan','Fiber and plant protein'],
+['Peanut Butter Banana Toast','🍌','breakfast',5,360,12,47,16,['bread','peanut butter','banana'],1.4,'vegan','Potassium and sustaining fats'],
+['Greek Yogurt Fruit Bowl','🍓','breakfast',5,270,18,36,6,['yogurt','berries','banana'],2.8,'vegetarian','Protein and calcium'],
+['Roasted Potato Bean Hash','🥔','dinner',35,460,17,69,12,['potato','black beans','onion','pepper','olive oil'],2.6,'vegan','Iron and fiber']
+].map((r,i)=>({id:i,title:r[0],emoji:r[1],meal:r[2],time:r[3],cal:r[4],protein:r[5],carbs:r[6],fat:r[7],ingredients:r[8],cost:r[9],diet:r[10],benefits:r[11]}));
+const KEY='fridge-chef-data-v1';const defaults={pantry:[],diet:'any',mealType:'any',maxTime:'120',month:'',budget:100,eatOut:4,monthPlan:[],planMonth:'',dayDates:[],dayPlans:[],shopping:[],avoid:'',calorieGoal:''};
+let state;try{state={...defaults,...JSON.parse(localStorage.getItem(KEY)||'{}')}}catch{state={...defaults}};
+const $=id=>document.getElementById(id);const persist=()=>localStorage.setItem(KEY,JSON.stringify(state));const escapeHTML=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let toastTimer;function toast(message){$('toast').textContent=message;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),2600)}
+function tab(name){document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id===name));document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('selected',b.dataset.tab===name));scrollTo({top:0,behavior:'smooth'})}document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>tab(b.dataset.tab)));
+function valid(r){if(state.diet==='vegan'&&r.diet!=='vegan')return false;if(state.diet==='no-eggs'&&['egg','meat','fish'].includes(r.diet))return false;if(state.diet==='vegetarian'&&['meat','fish'].includes(r.diet))return false;const avoids=state.avoid.toLowerCase().split(',').map(x=>x.trim()).filter(Boolean);return !avoids.some(a=>r.ingredients.some(i=>i.includes(a)))}
+function eligible(meal='any',time=120){return RECIPES.filter(r=>valid(r)&&(meal==='any'||r.meal===meal)&&r.time<=time)}
+function pantryHas(name){return state.pantry.some(p=>p.name.toLowerCase()===name.toLowerCase())}function match(r){return r.ingredients.filter(pantryHas).length}
+function matchPct(r){return r.ingredients.length?Math.round(match(r)/r.ingredients.length*100):0}
+function ringSVG(pct){const c=97.4;const off=(c*(1-pct/100)).toFixed(1);return `<svg class="ring" width="42" height="42" viewBox="0 0 36 36" role="img" aria-label="${pct}% of ingredients in your fridge"><circle cx="18" cy="18" r="15.5" fill="none" stroke="var(--ring-track)" stroke-width="3.4"/><circle cx="18" cy="18" r="15.5" fill="none" stroke="#276c4d" stroke-width="3.4" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${off}" transform="rotate(-90 18 18)"/><text x="18" y="21" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--ink)">${pct}%</text></svg>`}
 
-/* ---------------- utils (pure, testable) ---------------- */
-var DAY = 86400000;
-function round2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
-function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
-function parseDate(s) { var p = String(s).split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
-function fmtDate(d) {
-  var m = String(d.getMonth() + 1).padStart(2, '0'), dd = String(d.getDate()).padStart(2, '0');
-  return d.getFullYear() + '-' + m + '-' + dd;
+// ---- Greeting ----
+(function(){const h=new Date().getHours();$('greeting').textContent=h<11?'Good morning — what’s cooking?':h<17?'What’s cooking today?':'Good evening — what’s for dinner?'})();
+
+// ---- Pantry (collapsible) ----
+function renderPantry(){$('pantryCount').textContent=`${state.pantry.length} ingredient${state.pantry.length===1?'':'s'}`;$('ingredientChips').innerHTML=state.pantry.length?state.pantry.map((p,i)=>`<span class="chip">${escapeHTML(p.name)} · ${escapeHTML(p.qty)} ${escapeHTML(p.unit)} <button aria-label="Remove ${escapeHTML(p.name)}" data-remove-pantry="${i}">×</button></span>`).join(''):'<p class="hint">Add a few ingredients to start matching recipes.</p>'}
+$('pantryToggle').addEventListener('click',()=>{const panel=$('pantryPanel');const closed=panel.classList.toggle('closed');$('pantryToggle').setAttribute('aria-expanded',String(!closed))});
+if(state.pantry.length){$('pantryPanel').classList.add('closed');$('pantryToggle').setAttribute('aria-expanded','false')}
+$('ingredientForm').addEventListener('submit',e=>{e.preventDefault();const name=$('ingredientName').value.trim().toLowerCase();if(!name)return;const qty=Number($('ingredientQty').value);if(!(qty>0))return;const existing=state.pantry.find(p=>p.name===name);if(existing){existing.qty=qty;existing.unit=$('ingredientUnit').value}else state.pantry.push({name,qty,unit:$('ingredientUnit').value});persist();renderPantry();renderRecipes();$('ingredientForm').reset();$('ingredientQty').value=1;toast('Ingredient saved')});
+$('ingredientChips').addEventListener('click',e=>{const b=e.target.closest('[data-remove-pantry]');if(!b)return;state.pantry.splice(Number(b.dataset.removePantry),1);persist();renderPantry();renderRecipes()});
+
+// ---- Library / AI mode tabs ----
+let mode='lib';
+function setMode(m){mode=m;$('modeLib').classList.toggle('selected',m==='lib');$('modeAI').classList.toggle('selected',m==='ai');$('modeLib').setAttribute('aria-selected',String(m==='lib'));$('modeAI').setAttribute('aria-selected',String(m==='ai'));$('libControls').hidden=m!=='lib';$('aiControls').hidden=m!=='ai';$('recipes').hidden=m!=='lib';$('aiRecipes').hidden=m!=='ai';$('resultsTitle').textContent=m==='lib'?'Recipes for you':'AI ideas for you';if(m==='ai')renderAI();else renderRecipes()}
+$('modeLib').addEventListener('click',()=>setMode('lib'));
+$('modeAI').addEventListener('click',()=>setMode('ai'));
+
+// ---- Filters ----
+function syncPills(){document.querySelectorAll('#mealPills .pill').forEach(p=>p.classList.toggle('selected',p.dataset.meal===state.mealType))}
+$('mealPills').addEventListener('click',e=>{const b=e.target.closest('[data-meal]');if(!b)return;state.mealType=b.dataset.meal;persist();syncPills();renderRecipes()});
+$('useItUp').addEventListener('change',()=>{$('useItUpHint').hidden=!$('useItUp').checked;renderRecipes()});
+$('suggestBtn').addEventListener('click',()=>{state.diet=$('diet').value;state.maxTime=$('maxTime').value;persist();renderRecipes();toast('Recipes updated')});
+
+// ---- Recipe cards ----
+function recipeCard(r,i){const pct=matchPct(r);const have=match(r);const full=have===r.ingredients.length;return `<article class="recipe" data-recipe="${r.id}" style="--d:${Math.min(i*45,400)}ms" tabindex="0" role="button" aria-label="${escapeHTML(r.title)}"><div class="card-top"><span class="emoji">${r.emoji}</span>${state.pantry.length?ringSVG(pct):''}</div><h3>${escapeHTML(r.title)}</h3><p>${escapeHTML(r.benefits)}</p><div class="meta"><span class="tag">⏱ ${r.time} min</span><span class="tag">${r.cal} kcal</span>${state.pantry.length?(full?'<span class="badge-ready">✓ Ready to cook</span>':`<span class="badge-missing">Missing ${r.ingredients.length-have} item${r.ingredients.length-have===1?'':'s'}</span>`):`<span class="tag">${have}/${r.ingredients.length} ingredients</span>`}</div><button class="secondary" data-recipe="${r.id}">View recipe</button></article>`}
+function renderRecipes(){let arr=eligible(state.mealType,Number(state.maxTime));const useUp=$('useItUp').checked&&state.pantry.length>0;if(useUp)arr=arr.filter(r=>match(r)>0);arr.sort((a,b)=>match(b)-match(a)||matchPct(b)-matchPct(a)||a.cost-b.cost);$('recipeCount').textContent=`${arr.length} idea${arr.length===1?'':'s'}`;$('recipes').innerHTML=arr.length?arr.map(recipeCard).join(''):'<div class="panel">No matches. Try another meal, time limit, or diet.</div>'}
+$('recipes').addEventListener('click',e=>{const b=e.target.closest('[data-recipe]');if(b)showRecipe(b.dataset.recipe)});
+$('recipes').addEventListener('keydown',e=>{if(e.key!=='Enter')return;const b=e.target.closest('[data-recipe]');if(b)showRecipe(b.dataset.recipe)});
+
+// ---- Surprise me ----
+$('surpriseBtn').addEventListener('click',()=>{syncFiltersFromUI();let pool=eligible(state.mealType,Number(state.maxTime));if(!pool.length){toast('No recipes match your filters');return}const stocked=pool.filter(r=>match(r)>0);if(stocked.length)pool=stocked;const pick=pool[Math.floor(Math.random()*pool.length)];toast(`🎲 Tonight: ${pick.title}`);showRecipe(pick.id)});
+function syncFiltersFromUI(){state.diet=$('diet').value;state.maxTime=$('maxTime').value;persist()}
+
+// ---- Shopping helpers ----
+function shoppingAdd(name){const n=name.trim();if(!n||state.shopping.some(i=>i.name.toLowerCase()===n.toLowerCase()))return;state.shopping.push({name:n,done:false})}
+function addMissing(r){r.ingredients.filter(n=>!pantryHas(n)).forEach(shoppingAdd);persist();renderShopping();toast('Missing ingredients added to shopping list')}
+
+// ---- Recipe dialog + Cook Mode ----
+let cook=null;
+function librarySteps(r){const main=r.ingredients[0];const rest=r.ingredients.slice(1);return [
+`Gather everything: ${r.ingredients.join(', ')}. Tick items off in the checklist as you lay them out.`,
+`Wash and prep the ingredients — chop vegetables, measure out ${main}${rest.length?` and ${rest.slice(0,2).join(' and ')}`:''}, and keep seasonings within reach.`,
+`Heat a little oil in a pan or pot over medium heat. Cook the ${main} first until nearly done (about ${Math.max(4,Math.round(r.time*0.5))} minutes), then add the remaining ingredients and cook until everything is tender and fully cooked through (about ${Math.max(3,r.time-Math.round(r.time*0.5))} more minutes). Follow safe cooking temperatures for animal products.`,
+`Season to taste, take it off the heat, rest for a minute — and serve. Enjoy! 🎉`]}
+function showRecipe(id){const r=RECIPES.find(r=>r.id===Number(id));if(!r)return;cook=null;$('recipeDetail').innerHTML=`<div style="font-size:58px">${r.emoji}</div><h2>${escapeHTML(r.title)}</h2><p>${escapeHTML(r.benefits)}</p><p><strong>Time:</strong> ${r.time} min · <strong>Estimated cost:</strong> $${r.cost.toFixed(2)}/serving</p><p><strong>Nutrition/serving:</strong> ${r.cal} kcal · ${r.protein}g protein · ${r.carbs}g carbs · ${r.fat}g fat</p><h3>Gather your ingredients</h3><ul class="gather">${r.ingredients.map(i=>`<li><input type="checkbox" aria-label="Gathered ${escapeHTML(i)}"><span>${escapeHTML(i)} ${pantryHas(i)?'✓ in your fridge':'(not in fridge)'}</span></li>`).join('')}</ul><p class="hint">Steps in Cook Mode are simple general guidance generated for this dish, not tested instructions for a particular recipe. Always confirm safe cooking temperatures.</p><button class="primary wide" id="cookModeBtn">▶ Start cook mode</button><button class="secondary wide" id="addRecipeMissing">Add missing ingredients to shopping list</button>`;
+$('recipeDetail').querySelectorAll('.gather input').forEach(cb=>cb.addEventListener('change',()=>cb.closest('li').classList.toggle('done',cb.checked)));
+$('addRecipeMissing').addEventListener('click',()=>addMissing(r));
+$('cookModeBtn').addEventListener('click',()=>startCook(r.title,librarySteps(r),()=>showRecipe(r.id)));
+$('recipeDialog').showModal()}
+function startCook(title,steps,back){cook={title,steps,idx:0,back};renderCookStep();if(!$('recipeDialog').open)$('recipeDialog').showModal()}
+function renderCookStep(){const{title,steps,idx}=cook;const last=idx===steps.length-1;$('recipeDetail').innerHTML=`<p class="hint" style="margin-top:0">COOK MODE · ${escapeHTML(title)}</p><div class="dots">${steps.map((_,i)=>`<span class="dot${i===idx?' on':''}"></span>`).join('')}</div><p class="hint" style="text-align:center">Step ${idx+1} of ${steps.length}</p><div class="cook-step">${escapeHTML(steps[idx])}</div><div class="cook-nav"><button class="secondary" id="cookPrev" ${idx===0?'disabled':''}>← Back</button><button class="primary" id="cookNext">${last?'✓ Finish':'Next step →'}</button></div><button class="secondary wide" id="cookExit">Exit cook mode</button>`;
+$('cookPrev').addEventListener('click',()=>{if(cook.idx>0){cook.idx--;renderCookStep()}});
+$('cookNext').addEventListener('click',()=>{if(cook.idx<cook.steps.length-1){cook.idx++;renderCookStep()}else{const back=cook.back;cook=null;$('recipeDialog').close();toast('Cooking complete — enjoy your meal! 🎉');if(back)back()}});
+$('cookExit').addEventListener('click',()=>{const back=cook.back;cook=null;if(back)back();else $('recipeDialog').close()})}
+$('dialogClose').addEventListener('click',()=>$('recipeDialog').close());
+
+// ---- Month plan (tap day = view, 🔀 = swap dish) ----
+function toISODate(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}const now=new Date();const currentMonth=toISODate(now).slice(0,7);$('monthInput').value=state.month||currentMonth;$('dayDate').value=toISODate(now);$('diet').value=state.diet;$('maxTime').value=state.maxTime;syncPills();$('budget').value=state.budget;$('eatOut').value=state.eatOut;$('avoid').value=state.avoid;$('calorieGoal').value=state.calorieGoal;
+function renderMonth(){const grid=$('monthGrid');grid.innerHTML='';if(!state.monthPlan.length){$('monthSummary').innerHTML='<p class="muted">Create a plan to see your calendar.</p>';return}const total=state.monthPlan.filter(x=>x.recipeId!==null).reduce((s,x)=>s+RECIPES[x.recipeId].cost,0);const exceeded=total>state.budget;$('monthSummary').innerHTML=`<div class="summary-card"><strong>${state.monthPlan.length} days planned</strong><div>Estimated home-cooked dinner ingredients: $${total.toFixed(2)} for one serving per dinner ${exceeded?'· Over budget by $'+(total-state.budget).toFixed(2):'· Within target budget'}</div><small>Does not include breakfast, lunch, tax, food waste, pantry quantity or restaurant meals.</small></div>`;const [year,month]=state.planMonth.split('-').map(Number);const blanks=new Date(year,month-1,1).getDay();for(let i=0;i<blanks;i++){const node=document.createElement('div');grid.append(node)}state.monthPlan.forEach((d,i)=>{const r=d.recipeId===null?null:RECIPES[d.recipeId];const box=document.createElement('div');box.className='day-tile'+(!r?' rest':'');if(r){box.dataset.dayIdx=i;box.setAttribute('role','button');box.tabIndex=0}box.innerHTML=`<strong>${i+1}</strong>${r?`<button class="swap" data-swap="${i}" aria-label="Swap dish on day ${i+1}" title="Swap this dish">🔀</button>`:''}<span>${r?`${r.emoji} ${escapeHTML(r.title)}`:'🍽️ Eat out'}</span>`;grid.append(box)})}
+function swapDish(i){const dinners=eligible('dinner');if(dinners.length<2){toast('Not enough dinner options to swap');return}const cur=state.monthPlan[i].recipeId;const near=new Set(state.monthPlan.slice(Math.max(0,i-3),i+4).map(x=>x.recipeId));const ranked=[...dinners].sort((a,b)=>a.cost-b.cost);let candidates=ranked.filter(r=>r.id!==cur&&!near.has(r.id));if(!candidates.length)candidates=ranked.filter(r=>r.id!==cur);if(!candidates.length)return;const start=ranked.findIndex(r=>r.id===cur);let next=candidates[0];for(let k=1;k<=ranked.length;k++){const cand=ranked[(start+k)%ranked.length];if(candidates.includes(cand)){next=cand;break}}state.monthPlan[i].recipeId=next.id;persist();renderMonth();toast(`Day ${i+1}: ${next.emoji} ${next.title}`)}
+$('monthGrid').addEventListener('click',e=>{const sw=e.target.closest('[data-swap]');if(sw){e.stopPropagation();swapDish(Number(sw.dataset.swap));return}const tile=e.target.closest('[data-day-idx]');if(tile){const d=state.monthPlan[Number(tile.dataset.dayIdx)];if(d&&d.recipeId!==null)showRecipe(d.recipeId)}});
+$('generateMonth').addEventListener('click',()=>{const month=$('monthInput').value||currentMonth;const [y,m]=month.split('-').map(Number);const days=new Date(y,m,0).getDate();const dinner=eligible('dinner');if(!dinner.length){toast('No dinner recipes match your restrictions');return}const budget=Math.max(1,Number($('budget').value)||100),eatOut=Math.min(days,Math.max(0,Math.trunc(Number($('eatOut').value)||0)));const ranked=[...dinner].sort((a,b)=>a.cost-b.cost);const plan=[];let current=0;for(let i=0;i<days;i++){const restaurant=eatOut>0&&Math.floor((i+1)*eatOut/days)>Math.floor(i*eatOut/days);let recipe=null;if(!restaurant){let candidates=ranked.filter(r=>!plan.slice(-3).some(p=>p.recipeId===r.id));if(!candidates.length)candidates=ranked;recipe=candidates[current%candidates.length];current++}plan.push({recipeId:recipe?.id??null})}const cost=plan.reduce((sum,p)=>sum+(p.recipeId===null?0:RECIPES[p.recipeId].cost),0);state.month=month;state.planMonth=month;state.budget=budget;state.eatOut=eatOut;state.monthPlan=plan;persist();renderMonth();toast(cost>budget?'Created best-effort plan; cost exceeds target':'Monthly plan created')});
+
+// ---- My Days ----
+function renderSelectedDays(){$('selectedDates').innerHTML=state.dayDates.map((d,i)=>`<span class="chip">${escapeHTML(d)} <button data-remove-day="${i}" aria-label="Remove ${escapeHTML(d)}">×</button></span>`).join('')||'<span class="hint">No dates selected yet.</span>'}
+$('addDay').addEventListener('click',()=>{const d=$('dayDate').value;if(d&&!state.dayDates.includes(d))state.dayDates.push(d);state.dayDates.sort();persist();renderSelectedDays()});
+$('selectedDates').addEventListener('click',e=>{const b=e.target.closest('[data-remove-day]');if(!b)return;state.dayDates.splice(Number(b.dataset.removeDay),1);persist();renderSelectedDays()});
+$('generateDays').addEventListener('click',()=>{if(!state.dayDates.length){toast('Select at least one date');return}let sequence=0;const plans=[];for(const date of state.dayDates){const meals=[];for(const meal of ['breakfast','lunch','dinner']){const possible=eligible(meal);if(!possible.length){toast(`No ${meal} recipes match your restrictions`);return}possible.sort((a,b)=>match(b)-match(a));const best=possible[sequence%Math.min(4,possible.length)];sequence++;meals.push({meal,recipeId:best.id})}plans.push({date,meals})}state.dayPlans=plans;persist();renderDayPlans();toast('Meal plan saved')});
+function renderDayPlans(){$('dayPlans').innerHTML=state.dayPlans.map(p=>{const kcal=p.meals.reduce((s,m)=>s+RECIPES[m.recipeId].cal,0);const goal=Number(state.calorieGoal);return `<div class="day-plan"><h3>📅 ${escapeHTML(p.date)}</h3><p class="hint" style="margin:0 0 6px">≈ ${kcal} kcal planned${goal>0?` · daily goal ${goal} kcal (${kcal<=goal?'within goal ✓':'over by '+(kcal-goal)+' kcal'})`:''}</p>${p.meals.map(m=>{const r=RECIPES[m.recipeId];return `<div class="meal-row"><div><strong>${m.meal[0].toUpperCase()+m.meal.slice(1)}</strong><div>${r.emoji} ${escapeHTML(r.title)}</div><small class="muted">${r.cal} kcal · P ${r.protein}g · C ${r.carbs}g · F ${r.fat}g</small></div><button class="secondary" data-recipe="${r.id}">Details</button></div>`}).join('')}<button class="secondary wide" data-shop-date="${escapeHTML(p.date)}">Add missing groceries</button></div>`}).join('')||'<p class="muted">Your selected-day plans will appear here.</p>'}
+$('dayPlans').addEventListener('click',e=>{const r=e.target.closest('[data-recipe]');if(r)return showRecipe(r.dataset.recipe);const b=e.target.closest('[data-shop-date]');if(b){const plan=state.dayPlans.find(p=>p.date===b.dataset.shopDate);plan?.meals.forEach(m=>RECIPES[m.recipeId].ingredients.filter(i=>!pantryHas(i)).forEach(shoppingAdd));persist();renderShopping();toast('Groceries added')}});
+
+// ---- Shopping ----
+function renderShopping(){const total=state.shopping.length;const done=state.shopping.filter(i=>i.done).length;$('shopProgressWrap').hidden=total===0;$('shopProgress').style.width=total?`${Math.round(done/total*100)}%`:'0';$('shopProgressText').textContent=total?`${done} of ${total} bought${done===total?' — all done 🎉':''}`:'';$('shoppingList').innerHTML=total?state.shopping.map((i,n)=>`<div class="shop-item ${i.done?'done':''}"><input type="checkbox" data-shop-check="${n}" ${i.done?'checked':''} aria-label="Mark ${escapeHTML(i.name)} purchased"><span>${escapeHTML(i.name)}</span><button data-shop-remove="${n}" aria-label="Remove ${escapeHTML(i.name)}">×</button></div>`).join(''):'<p class="hint">Your grocery list is empty. Add items or send missing recipe ingredients here.</p>'}
+$('shoppingForm').addEventListener('submit',e=>{e.preventDefault();shoppingAdd($('shoppingName').value);$('shoppingName').value='';persist();renderShopping()});
+$('shoppingList').addEventListener('change',e=>{if(e.target.matches('[data-shop-check]')){state.shopping[Number(e.target.dataset.shopCheck)].done=e.target.checked;persist();renderShopping()}});
+$('shoppingList').addEventListener('click',e=>{const b=e.target.closest('[data-shop-remove]');if(!b)return;state.shopping.splice(Number(b.dataset.shopRemove),1);persist();renderShopping()});
+$('clearChecked').addEventListener('click',()=>{state.shopping=state.shopping.filter(i=>!i.done);persist();renderShopping()});
+$('shareList').addEventListener('click',async()=>{const content='Fridge Chef shopping list\n'+state.shopping.map(i=>`${i.done?'[x]':'[ ]'} ${i.name}`).join('\n');try{if(navigator.share)await navigator.share({text:content});else if(navigator.clipboard)await navigator.clipboard.writeText(content);else throw Error('No share');toast('List shared or copied')}catch(e){if(e.name!=='AbortError')toast('Use Export backup if copying is unavailable')}});
+
+// ---- Preferences & backup ----
+$('savePrefs').addEventListener('click',()=>{state.avoid=$('avoid').value;state.calorieGoal=$('calorieGoal').value;persist();renderRecipes();renderDayPlans();toast('Preferences saved')});
+function download(name,blob){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),5000)}
+$('exportData').addEventListener('click',()=>download('fridge-chef-backup.json',new Blob([JSON.stringify(state,null,2)],{type:'application/json'})));
+$('importData').addEventListener('change',async e=>{const f=e.target.files?.[0];if(!f)return;try{const data=JSON.parse(await f.text());if(!data||typeof data!=='object'||!Array.isArray(data.pantry)||!Array.isArray(data.shopping))throw Error('Invalid backup');state={...defaults,...data};persist();location.reload()}catch{toast('Invalid Fridge Chef backup file')}});
+$('exportHTML').addEventListener('click',()=>{const safe=JSON.stringify(state).replace(/</g,'\\u003c');const markup=`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Fridge Chef offline snapshot</title><style>body{font-family:system-ui;max-width:800px;margin:30px auto;padding:15px;background:#f5f8f2;color:#184a36}section{background:#fff;padding:18px;border-radius:14px;margin:12px 0}li{margin:7px 0}</style></head><body><h1>🥬 Fridge Chef — Offline Snapshot</h1><p>Saved data snapshot. For interactive cooking and planning, open the Fridge Chef app.</p><div id="content"></div><script>const s=${safe};const e=document.getElementById('content');const esc=x=>String(x).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));[['Pantry',s.pantry.map(i=>i.name+' — '+i.qty+' '+i.unit)],['Shopping list',s.shopping.map(i=>(i.done?'✓ ':'□ ')+i.name)],['Selected days',s.dayDates],['Meal plans',s.dayPlans.map(i=>i.date+' — '+i.meals.map(m=>m.meal+' recipe #'+m.recipeId).join(', '))]].forEach(([name,items])=>{const el=document.createElement('section');el.innerHTML='<h2>'+name+'</h2><ul>'+items.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>';e.append(el)});<\/script></body></html>`;download('fridge-chef-offline-snapshot.html',new Blob([markup],{type:'text/html'}));toast('Offline snapshot saved')});
+function connection(){const el=$('connection');el.textContent=navigator.onLine?'● Offline-ready':'● Offline'}addEventListener('online',connection);addEventListener('offline',connection);connection();
+if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(()=>{});
+
+// AI suggestions are an optional enhancement. Offline RECIPES, month and day plans stay independent.
+const AI_KEY='fridge-chef-ai-v1';let aiRecipes=[];
+try { const saved=JSON.parse(localStorage.getItem(AI_KEY)||'[]');if(Array.isArray(saved))aiRecipes=saved.slice(0,3) } catch {}
+const aiStatus=$('aiStatus');const aiButton=$('generateAI');
+function aiAllowed(r){
+  const ingredients=r.ingredients.map(x=>String(x).toLowerCase());
+  const joined=ingredients.join(' | ');
+  // Conservative screening supplements server validation; always manually check allergens.
+  const meat=/(\bchicken\b|\bbeef\b|\bpork\b|\bbacon\b|\bham\b|\bturkey\b|\blamb\b|\bgelatin\b|\bmeat\b|\bfish\b|\btuna\b|\bsalmon\b|\bshrimp\b|\bprawn\b|\boyster\b|\bancho(vy|vies)\b)/i;
+  const egg=/(\begg(s)?\b|\bmayonnaise\b|\bmayo\b)/i;
+  const dairy=/(\bmilk\b|\bcheese\b|\bbutter\b|\byogurt\b|\bcream\b|\bghee\b|\bwhey\b|\bcasein\b|\bhoney\b)/i;
+  if(['vegetarian','no-eggs','vegan'].includes(state.diet)&&meat.test(joined))return false;
+  if(['no-eggs','vegan'].includes(state.diet)&&egg.test(joined))return false;
+  if(state.diet==='vegan'&&dairy.test(joined))return false;
+  const avoids=state.avoid.toLowerCase().split(',').map(x=>x.trim()).filter(Boolean);
+  return !avoids.some(x=>ingredients.some(i=>i.includes(x)));
 }
-function todayStr() { return fmtDate(new Date()); }
-function addDays(d, n) { var x = new Date(d.getTime()); x.setDate(x.getDate() + n); return x; }
-function addDaysStr(s, n) { return fmtDate(addDays(parseDate(s), n)); }
-function clampDay(y, m, day) { return Math.min(day, new Date(y, m + 1, 0).getDate()); }
-/* ---------------- currencies ----------------
-   Multi-currency rule: every account, card, goal and investment has ONE
-   currency. Amounts in different currencies are NEVER converted and NEVER
-   added together — every total in the app is per currency. */
-var CURRENCIES = [
-  { code: 'USD', name: 'US Dollar', symbol: '$', decimals: 2, country: 'United States', flag: '🇺🇸' },
-  { code: 'INR', name: 'Indian Rupee', symbol: '\u20B9', decimals: 2, grouping: 'in', country: 'India', flag: '🇮🇳' },
-  { code: 'EUR', name: 'Euro', symbol: '\u20AC', decimals: 2, country: 'Eurozone', flag: '🇪🇺' },
-  { code: 'GBP', name: 'British Pound', symbol: '\u00A3', decimals: 2, country: 'United Kingdom', flag: '🇬🇧' },
-  { code: 'AED', name: 'UAE Dirham', symbol: 'AED ', decimals: 2, country: 'United Arab Emirates', flag: '🇦🇪' },
-  { code: 'CAD', name: 'Canadian Dollar', symbol: '$', decimals: 2, country: 'Canada', flag: '🇨🇦' },
-  { code: 'AUD', name: 'Australian Dollar', symbol: '$', decimals: 2, country: 'Australia', flag: '🇦🇺' },
-  { code: 'SGD', name: 'Singapore Dollar', symbol: '$', decimals: 2, country: 'Singapore', flag: '🇸🇬' },
-  { code: 'JPY', name: 'Japanese Yen', symbol: '\u00A5', decimals: 0, country: 'Japan', flag: '🇯🇵' },
-  { code: 'CNY', name: 'Chinese Yuan', symbol: '\u00A5', decimals: 2, country: 'China', flag: '🇨🇳' },
-  { code: 'CHF', name: 'Swiss Franc', symbol: 'CHF ', decimals: 2, country: 'Switzerland', flag: '🇨🇭' },
-  { code: 'PKR', name: 'Pakistani Rupee', symbol: 'Rs ', decimals: 2, grouping: 'in', country: 'Pakistan', flag: '🇵🇰' }
+function renderAI(){
+ const list=aiRecipes.filter(r=>aiAllowed(r));
+ $('aiRecipes').innerHTML=list.length?list.map((r,i)=>`<article class="recipe" data-ai="${i}" style="--d:${i*60}ms" tabindex="0" role="button" aria-label="${escapeHTML(r.title)}"><span class="emoji">✨</span><h3>${escapeHTML(r.title)}</h3><p>${escapeHTML(r.benefits)}</p><div class="meta"><span class="tag">⏱ ${r.time} min</span><span class="tag">~${r.cal} kcal</span><span class="tag">${escapeHTML(r.meal)}</span></div><button class="secondary" data-ai="${i}">View recipe</button></article>`).join(''):(mode==='ai'?'<div class="panel">No AI ideas yet — tap “Generate 3 AI recipes” above.</div>':'');
+ if(mode==='ai')$('recipeCount').textContent=list.length?`${list.length} AI idea${list.length===1?'':'s'}`:'';
+}
+function showAI(r){
+ const d=$('recipeDetail');cook=null;d.innerHTML=`<div style="font-size:58px">✨</div><h2>${escapeHTML(r.title)}</h2><p>${escapeHTML(r.benefits)}</p><p>${r.time} minutes · Estimated ${r.cal} kcal · Protein ${r.protein}g · Carbs ${r.carbs}g · Fat ${r.fat}g</p><h3>Gather your ingredients</h3><ul class="gather">${r.ingredients.map(i=>`<li><input type="checkbox" aria-label="Gathered ${escapeHTML(i)}"><span>${escapeHTML(i)} ${pantryHas(i)?'✓ in your fridge':''}</span></li>`).join('')}</ul><p class="hint">AI estimates are not verified nutrition facts. Confirm labels, allergens and safe cooking temperatures.</p><button class="primary wide" id="aiCookBtn">▶ Start cook mode</button><button class="secondary wide" id="aiShop">Add missing ingredient names to shopping list</button>`;
+ d.querySelectorAll('.gather input').forEach(cb=>cb.addEventListener('change',()=>cb.closest('li').classList.toggle('done',cb.checked)));
+ $('aiShop').addEventListener('click',()=>{r.ingredients.filter(i=>!pantryHas(i)).forEach(shoppingAdd);persist();renderShopping();toast('Ingredients added')});
+ $('aiCookBtn').addEventListener('click',()=>startCook(r.title,[`Gather everything: ${r.ingredients.join(', ')}.`,...r.steps],()=>showAI(r)));
+ $('recipeDialog').showModal();
+}
+$('aiRecipes').addEventListener('click',e=>{const b=e.target.closest('[data-ai]');if(!b)return;const visible=aiRecipes.filter(r=>aiAllowed(r));if(visible[Number(b.dataset.ai)])showAI(visible[Number(b.dataset.ai)])});
+function aiSkeleton(){$('aiRecipes').innerHTML=Array.from({length:3},()=>'<div class="skeleton"><div class="sk" style="width:44px;height:44px;border-radius:12px"></div><div class="sk" style="height:18px;margin-top:14px;width:75%"></div><div class="sk" style="height:13px;margin-top:10px;width:95%"></div><div class="sk" style="height:13px;margin-top:8px;width:60%"></div><div class="sk" style="height:36px;margin-top:16px"></div></div>').join('');$('recipeCount').textContent='Thinking…'}
+aiButton.addEventListener('click',async()=>{
+ syncFiltersFromUI();renderRecipes();setMode('ai');
+ if(!navigator.onLine){aiStatus.textContent='Offline: enjoy the built-in recipes below or previously saved AI ideas.';renderAI();return}
+ aiButton.disabled=true;aiStatus.textContent='Generating personalized recipes…';aiSkeleton();const ctrl=new AbortController();const timer=setTimeout(()=>ctrl.abort(),28000);
+ try{
+  const res=await fetch('/api/recipes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pantry:state.pantry.slice(0,35),diet:state.diet,meal:state.mealType,maxTime:Number(state.maxTime),avoid:state.avoid.slice(0,250)}),signal:ctrl.signal,cache:'no-store'});
+  if(!res.ok)throw Error(res.status===429?'Rate limit reached':res.status===503?'AI is not configured':'AI unavailable');
+  const body=await res.json();if(!Array.isArray(body.recipes))throw Error('Invalid response');
+  const clean=body.recipes.filter(r=>r&&typeof r.title==='string'&&Array.isArray(r.ingredients)&&Array.isArray(r.steps)&&Number.isFinite(r.cal)&&Number.isFinite(r.time)&&r.time<=Number(state.maxTime)&&aiAllowed(r));
+  if(!clean.length)throw Error('No AI suggestions met your dietary filters');
+  aiRecipes=clean.slice(0,3);localStorage.setItem(AI_KEY,JSON.stringify(aiRecipes));renderAI();aiStatus.textContent=`${aiRecipes.length} AI recipe(s) generated with ${body.provider==='groq'?'Groq (backup)':'Gemini'} and saved for offline viewing.`;
+ }catch(err){aiStatus.textContent=`${err.message||'Could not connect'}. Built-in offline recipes remain in the Library tab.`;renderAI()}
+ finally{clearTimeout(timer);aiButton.disabled=false}
+});
+addEventListener('offline',()=>{aiStatus.textContent='Offline: built-in recipes and saved AI ideas available.'});
+
+// ---- Theme (System / Light / Dark) ----
+const THEME_KEY='fridge-chef-theme';
+function themePref(){try{return localStorage.getItem(THEME_KEY)||'system'}catch(e){return 'system'}}
+function resolvedTheme(p){return p==='dark'?'dark':p==='light'?'light':(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')}
+function applyTheme(p){
+ const r=resolvedTheme(p);document.documentElement.dataset.theme=r;
+ const t=$('themeToggle');if(t){t.textContent=r==='dark'?'☀️ Light':'🌙 Dark';t.setAttribute('aria-label','Switch to '+(r==='dark'?'light':'dark')+' mode')}
+ document.querySelectorAll('[data-theme-opt]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.themeOpt===p)));
+ const meta=document.querySelector('meta[name="theme-color"]');if(meta)meta.setAttribute('content',r==='dark'?'#0e1712':'#174d3b');
+}
+function setTheme(p){try{localStorage.setItem(THEME_KEY,p)}catch(e){}applyTheme(p)}
+const themeToggleEl=$('themeToggle');
+if(themeToggleEl)themeToggleEl.addEventListener('click',()=>setTheme(resolvedTheme(themePref())==='dark'?'light':'dark'));
+document.querySelectorAll('[data-theme-opt]').forEach(b=>b.addEventListener('click',()=>setTheme(b.dataset.themeOpt)));
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(themePref()==='system')applyTheme('system')});
+applyTheme(themePref());
+
+// ---- Initial render ----
+renderPantry();renderRecipes();renderMonth();renderSelectedDays();renderDayPlans();renderShopping();renderAI();
+
+// ---- Dish Guide: offline library (checked first), AI fallback via /api/guide ----
+const GUIDE_LIB=[
+{name:'Butter Chicken',aliases:['murgh makhani'],cuisine:'Mughlai',time:45,servings:4,level:'Medium',diet:'meat',ingredients:[['500 g','chicken'],['3 tbsp','butter'],['1 cup','tomato puree'],['1','onion'],['1 tbsp','ginger garlic paste'],['1/2 cup','cream'],['1 tsp','garam masala'],['1 tsp','kasuri methi'],['1 tsp','red chili powder'],['to taste','salt']],steps:['Marinate the chicken with salt, red chili powder and half the ginger garlic paste for 20 minutes (overnight is even better).','Grill or pan-fry the chicken on high heat until lightly charred at the edges, about 8 minutes. Set aside.','Melt butter in the same pan. Add the finely chopped onion and cook until golden, 6-7 minutes.','Add the remaining ginger garlic paste, tomato puree and a pinch of salt. Cook until the butter separates at the edges, about 10 minutes.','Blend the sauce until silky (optional but classic), return it to the pan and stir in the cream and garam masala.','Crush the kasuri methi between your palms into the sauce, add the chicken and simmer 5-6 minutes until cooked through.','Rest 5 minutes. Serve with naan or basmati rice and a swirl of cream.']},
+{name:'Palak Paneer',aliases:['saag paneer'],cuisine:'Punjabi',time:35,servings:4,level:'Easy',diet:'vegetarian',ingredients:[['500 g','spinach'],['250 g','paneer'],['1','onion'],['2','tomato'],['1 tbsp','ginger garlic paste'],['2','green chili'],['1/2 tsp','cumin seeds'],['2 tbsp','cream'],['1 tbsp','oil']],steps:['Blanch the spinach in boiling water for 2 minutes, then cool it in cold water and blend to a smooth puree.','Cut the paneer into cubes and pan-fry in a little oil until lightly golden. Set aside.','Heat oil, add cumin seeds and let them splutter. Add chopped onion and cook until golden.','Add ginger garlic paste and green chili, then the chopped tomato. Cook until soft and the oil separates.','Pour in the spinach puree with salt. Simmer 5 minutes — do not cover, so it stays bright green.','Fold in the paneer and cream, simmer 2 more minutes and serve with roti or rice.']},
+{name:'Rajma Masala',aliases:['rajma','kidney bean curry'],cuisine:'Punjabi',time:50,servings:4,level:'Easy',diet:'vegan',ingredients:[['2 cups','kidney beans'],['2','onion'],['2','tomato'],['1 tbsp','ginger garlic paste'],['1 tsp','cumin seeds'],['1 tsp','garam masala'],['1 tsp','turmeric'],['1 tsp','red chili powder'],['2 tbsp','oil']],steps:['Soak the kidney beans overnight (8-10 hours). Drain and pressure-cook with fresh water and salt until soft, about 20 minutes.','Heat oil, add cumin seeds, then finely chopped onions. Cook until deep golden, 8-10 minutes.','Add ginger garlic paste, then tomato puree with turmeric and red chili powder. Cook until the oil separates.','Add the cooked beans with their liquid. Simmer 15 minutes, lightly mashing a few beans to thicken the gravy.','Finish with garam masala and fresh coriander. Serve with steamed rice.']},
+{name:'Chole',aliases:['chana masala','chickpea curry'],cuisine:'Punjabi',time:45,servings:4,level:'Easy',diet:'vegan',ingredients:[['2 cups','chickpeas'],['2','onion'],['2','tomato'],['1 tbsp','ginger garlic paste'],['2 tbsp','chole masala'],['1 tsp','cumin seeds'],['1','bay leaf'],['2 tbsp','oil']],steps:['Soak chickpeas overnight. Pressure-cook with salt (and a tea bag for colour, optional) until tender, about 20 minutes.','Heat oil with cumin seeds and bay leaf. Add finely chopped onions and cook until golden brown.','Add ginger garlic paste and tomato puree. Cook until the masala darkens and oil separates.','Stir in the chole masala, then add chickpeas with their cooking liquid.','Simmer 12-15 minutes, mashing a few chickpeas for body. Adjust salt and tang with lemon juice.','Serve with bhature, poori or rice, topped with onion rings and coriander.']},
+{name:'Hyderabadi Chicken Biryani',aliases:['chicken biryani','chicken dum biryani'],cuisine:'Hyderabadi',time:90,servings:6,level:'Hard',diet:'meat',ingredients:[['750 g','chicken'],['3 cups','basmati rice'],['1 cup','yogurt'],['2','onion'],['1 tbsp','ginger garlic paste'],['2 tbsp','biryani masala'],['1/2 cup','mint leaves'],['1/2 cup','coriander leaves'],['a pinch','saffron'],['3 tbsp','ghee']],steps:['Soak the rice for 30 minutes. Fry the sliced onions until crisp and golden (birista) and set aside.','Marinate chicken with yogurt, ginger garlic paste, biryani masala, salt, half the fried onions and herbs for at least 1 hour.','Boil the rice in well-salted water with whole spices until 70% cooked. Drain immediately.','Layer the marinated chicken in a heavy pot, cover with the rice, then top with fried onions, herbs, saffron soaked in warm milk and ghee.','Seal the lid (with dough or foil) and cook on high for 5 minutes, then on the lowest heat (dum) for 35-40 minutes.','Rest 10 minutes before opening. Fluff gently from the sides and serve with raita and mirchi ka salan.']},
+{name:'Vegetable Biryani',aliases:['veg biryani','sabzi biryani'],cuisine:'Hyderabadi',time:60,servings:5,level:'Medium',diet:'vegetarian',ingredients:[['2 cups','basmati rice'],['2 cups','mixed vegetables'],['1/2 cup','yogurt'],['2','onion'],['1 tbsp','ginger garlic paste'],['2 tbsp','biryani masala'],['1/2 cup','mint leaves'],['a pinch','saffron'],['3 tbsp','ghee']],steps:['Soak rice 30 minutes. Fry sliced onions until crisp and golden; set aside.','Sauté the mixed vegetables with ginger garlic paste, biryani masala and salt until half cooked. Stir in the yogurt off the heat.','Boil rice in salted water until 70% cooked; drain.','Layer vegetables and rice in a heavy pot, topping with fried onions, mint, saffron milk and ghee.','Seal and cook on dum: 5 minutes high, then 25 minutes on the lowest heat.','Rest 10 minutes, fluff gently and serve with raita.']},
+{name:'Masala Dosa',aliases:['dosa','mysore masala dosa'],cuisine:'Tamil',time:40,servings:4,level:'Medium',diet:'vegan',ingredients:[['2 cups','dosa batter'],['4','potato'],['1','onion'],['1 tsp','mustard seeds'],['8-10','curry leaves'],['1 tsp','turmeric'],['2','green chili'],['1 tbsp','ginger'],['2 tbsp','oil']],steps:['Make the filling: boil and roughly mash the potatoes.','Heat oil, splutter mustard seeds, then add curry leaves, green chili, ginger and sliced onion. Cook until soft.','Add turmeric, salt and the potatoes. Mix well and cook 3-4 minutes. Keep warm.','Heat a cast-iron tawa until very hot, sprinkle water, then pour a ladle of batter and spiral it thin.','Drizzle oil around the edges, cook until crisp and golden (no flipping). Place filling in the centre and fold.','Serve immediately with coconut chutney and sambar. Note: batter needs 8-12 hours of fermentation if made from scratch.']},
+{name:'Pav Bhaji',aliases:['bhaji pav'],cuisine:'Maharashtrian Fast Food',time:35,servings:4,level:'Easy',diet:'vegetarian',ingredients:[['3','potato'],['1 cup','cauliflower'],['1/2 cup','peas'],['2','tomato'],['1','onion'],['1','capsicum'],['2 tbsp','pav bhaji masala'],['3 tbsp','butter'],['4','pav buns'],['1','lemon']],steps:['Boil potatoes, cauliflower and peas until very soft. Mash roughly, keeping some texture.','Melt butter and cook finely chopped onion and capsicum until soft.','Add tomatoes and pav bhaji masala; cook until the butter separates and the masala is deep red.','Add the mashed vegetables with a cup of water. Simmer 8-10 minutes, mashing as it cooks. Salt to taste.','Toast the pav in butter until golden.','Serve the bhaji hot with a knob of butter, lemon wedge and chopped onion.']},
+{name:'Aloo Paratha',aliases:['potato paratha','alu paratha'],cuisine:'Punjabi',time:40,servings:4,level:'Medium',diet:'vegetarian',ingredients:[['2 cups','whole wheat flour'],['4','potato'],['1','onion'],['2','green chili'],['1 tsp','cumin seeds'],['1 tsp','amchur'],['1/2 tsp','garam masala'],['2 tbsp','coriander leaves'],['as needed','ghee']],steps:['Knead the flour with water and a pinch of salt into a soft dough. Rest 20 minutes.','Boil and mash the potatoes smoothly (no lumps). Mix in finely chopped onion, chili, cumin, amchur, garam masala, coriander and salt.','Roll a dough ball into a small disc, place 2 tablespoons of filling in the centre and pleat it closed.','Roll gently into a thick paratha, dusting with flour so the filling does not tear through.','Cook on a hot tawa, flipping once, then smear ghee and cook until golden spots appear on both sides.','Serve hot with butter, yogurt and pickle.']},
+{name:'Gujarati Khaman Dhokla',aliases:['dhokla','khaman'],cuisine:'Gujarati',time:30,servings:4,level:'Easy',diet:'vegetarian',ingredients:[['1 cup','besan'],['1 tbsp','semolina'],['1 tsp','ginger chili paste'],['1 tsp','eno fruit salt'],['1 tsp','mustard seeds'],['8','curry leaves'],['1 tbsp','sugar'],['2 tbsp','oil'],['1','lemon']],steps:['Whisk besan, semolina, sugar, salt, ginger chili paste and lemon juice with water into a smooth, thick batter. Rest 10 minutes.','Stir in the eno just before steaming — the batter will froth up. Pour immediately into a greased steamer plate.','Steam for 12-15 minutes until a knife comes out clean. Cool 5 minutes and cut into squares.','Temper mustard seeds and curry leaves in hot oil (add a splash of water, a pinch of sugar and lemon juice) and pour over the dhokla.','Garnish with coriander and grated coconut. Serve with green chutney.']},
+{name:'Punjabi Samosa',aliases:['samosa','aloo samosa'],cuisine:'Indian Fast Food',time:60,servings:4,level:'Medium',diet:'vegan',ingredients:[['2 cups','all purpose flour'],['4','potato'],['1/2 cup','peas'],['1 tsp','cumin seeds'],['1 tsp','coriander powder'],['1/2 tsp','amchur'],['1/2 tsp','garam masala'],['4 tbsp','ghee'],['for frying','oil']],steps:['Rub ghee into the flour with salt until it resembles breadcrumbs. Knead with cold water into a stiff dough. Rest 30 minutes.','Filling: heat oil, add cumin, then boiled crumbled potatoes, peas and all the spices. Cook 4-5 minutes; cool completely.','Roll dough into ovals, cut in half, form a cone, seal the edge with water and fill. Seal the base firmly.','Rest the shaped samosas 15 minutes so the pastry dries slightly.','Fry in oil on LOW heat for 12-15 minutes, turning, until deep golden and crisp — never rush with hot oil.','Drain and serve with mint and tamarind chutneys.']},
+{name:'Moong Dal Tadka',aliases:['dal tadka','moong dal'],cuisine:'Punjabi',time:30,servings:4,level:'Easy',diet:'vegan',ingredients:[['1 cup','moong dal'],['1','tomato'],['1 tsp','cumin seeds'],['1 tsp','turmeric'],['4 cloves','garlic'],['2','dry red chili'],['1 tbsp','ginger'],['2 tbsp','ghee or oil']],steps:['Rinse the moong dal and pressure-cook with turmeric, tomato and 3 cups water until completely soft, about 10 minutes.','Whisk the dal smooth and adjust to a pouring consistency with hot water. Salt to taste. Simmer 5 minutes.','Tadka: heat ghee, add cumin seeds, sliced garlic and dry red chilies. Fry until the garlic is golden — not brown.','Pour the sizzling tadka over the dal and cover immediately for a minute to trap the aroma.','Stir in grated ginger and coriander. Serve with rice or roti.']},
+{name:'Tomato Basil Pasta',aliases:['pasta','tomato pasta','pasta marinara'],cuisine:'Roman',time:25,servings:3,level:'Easy',diet:'vegetarian',ingredients:[['300 g','pasta'],['4','tomato'],['4 cloves','garlic'],['1/2 cup','basil leaves'],['1/2 tsp','chili flakes'],['3 tbsp','olive oil'],['1/4 cup','parmesan']],steps:['Cook pasta in well-salted boiling water until just shy of done. Save a cup of the pasta water.','Meanwhile, sizzle sliced garlic and chili flakes in olive oil for 1 minute (do not brown).','Add chopped tomatoes with salt. Cook 8-10 minutes until they collapse into a sauce.','Add the pasta to the sauce with a splash of pasta water. Toss on high heat for 1-2 minutes until glossy.','Tear in the basil, take off the heat and fold in parmesan.','Serve immediately with extra basil and olive oil.']},
+{name:'Vegetable Fried Rice',aliases:['fried rice','veg fried rice'],cuisine:'Indo-Chinese',time:25,servings:3,level:'Easy',diet:'vegan',ingredients:[['3 cups','cooked rice'],['1','carrot'],['1/2 cup','cabbage'],['1/2 cup','peas'],['3','spring onion'],['3 cloves','garlic'],['2 tbsp','soy sauce'],['1 tbsp','vinegar'],['2 tbsp','oil']],steps:['Use cold, day-old cooked rice — fresh rice turns mushy. Break up any clumps.','Heat oil in a wok until smoking. Add garlic and the white parts of the spring onions for 30 seconds.','Add carrot, cabbage and peas. Stir-fry on the highest heat for 2-3 minutes, keeping the crunch.','Add the rice and toss for 2 minutes until the grains are hot and separate.','Splash soy sauce and vinegar around the wok edges (not directly on the rice) and toss through.','Finish with spring onion greens and white pepper. Serve immediately.']},
+{name:'Veggie Stir Fry',aliases:['stir fry','vegetable stir fry'],cuisine:'Indo-Chinese',time:20,servings:3,level:'Easy',diet:'vegan',ingredients:[['2 cups','broccoli'],['1','bell pepper'],['1','carrot'],['100 g','mushrooms'],['3 cloves','garlic'],['1 tbsp','ginger'],['2 tbsp','soy sauce'],['1 tsp','cornstarch'],['2 tbsp','oil']],steps:['Mix soy sauce, cornstarch and 1/4 cup water into a sauce. Prep all vegetables before you start — stir fry moves fast.','Heat oil in a wok until smoking. Add garlic and ginger for 20 seconds.','Add the hardest vegetables first (carrot, broccoli) for 2 minutes, then peppers and mushrooms for 2 more.','Pour in the sauce and toss for 1 minute until it glazes everything.','Serve at once over rice or noodles, with sesame oil if you have it.']},
+{name:'Fluffy Pancakes',aliases:['pancakes','american pancakes'],cuisine:'American',time:20,servings:4,level:'Easy',diet:'egg',ingredients:[['1.5 cups','all purpose flour'],['1 cup','milk'],['1','egg'],['2 tbsp','sugar'],['2 tsp','baking powder'],['2 tbsp','butter'],['1/2 tsp','salt']],steps:['Whisk the dry ingredients in a big bowl. Whisk milk, egg and melted butter in another.','Pour wet into dry and stir until JUST combined — lumps are good; overmixing makes tough pancakes. Rest 5 minutes.','Heat a non-stick pan on medium and brush with butter.','Pour 1/3 cup of batter per pancake. When bubbles cover the surface and edges look set (about 2 minutes), flip once.','Cook 1 more minute until golden. Serve warm with maple syrup, berries or honey.']},
+{name:'Guacamole',aliases:['guac','avocado dip'],cuisine:'Mexican',time:10,servings:4,level:'Easy',diet:'vegan',ingredients:[['3','avocado'],['1','lime'],['1/2','onion'],['1','tomato'],['1','jalapeno'],['2 tbsp','cilantro'],['to taste','salt']],steps:['Halve the avocados, remove the stones and scoop the flesh into a bowl.','Add lime juice immediately (stops browning) and mash with a fork — keep it chunky.','Fold in finely diced onion, deseeded tomato, jalapeno and cilantro.','Salt to taste and rest 10 minutes for the flavours to marry.','Serve with tortilla chips, tacos or toast. Press cling film directly onto the surface to store.']},
+{name:'Shakshuka',aliases:['shakshouka','eggs in tomato sauce'],cuisine:'Middle Eastern',time:30,servings:3,level:'Easy',diet:'egg',ingredients:[['4','egg'],['4','tomato'],['1','bell pepper'],['1','onion'],['3 cloves','garlic'],['1 tsp','cumin'],['1 tsp','smoked paprika'],['2 tbsp','olive oil'],['2 tbsp','parsley']],steps:['Soften sliced onion and pepper in olive oil for 6-7 minutes. Add garlic, cumin and paprika for 30 seconds.','Add chopped tomatoes with salt. Simmer 10-12 minutes until thick; adjust with a pinch of sugar if too sharp.','Make small wells in the sauce and crack an egg into each.','Cover and cook on low for 5-7 minutes until the whites are set but yolks still runny.','Scatter parsley (and feta, if you like) and serve straight from the pan with crusty bread.']}
 ];
-function currencyOf(code) {
-  for (var i = 0; i < CURRENCIES.length; i++) if (CURRENCIES[i].code === code) return CURRENCIES[i];
-  return CURRENCIES[0]; // USD fallback
-}
-function isValidCurrency(code) {
-  for (var i = 0; i < CURRENCIES.length; i++) if (CURRENCIES[i].code === code) return true;
-  return false;
-}
-function entityCurrency(entity) {
-  return (entity && isValidCurrency(entity.currency)) ? entity.currency : 'USD';
-}
-var balanceHidden = false;
-var countryVis = {}; /* per-country visibility overrides, set by each country
-                        card's own eye toggle: code -> true show / false hide;
-                        absent = follow the global toggle. Session-only. */
-var revealCurrency = null; /* set only while renderOverview draws an OPENED
-                              country: that one currency shows there */
-function moneyVisible(code) {
-  if (revealCurrency && code === revealCurrency) return true;
-  if (Object.prototype.hasOwnProperty.call(countryVis, code)) return countryVis[code];
-  return !balanceHidden;
-}
-function setBalanceHidden(v) { balanceHidden = !!v; }
-function isBalanceHidden() { return balanceHidden; }
-/* Digit grouping follows each currency's home convention:
-   western xxx,xxx,xxx for most currencies; the Indian system
-   xx,xx,xxx (thousand, then lakh/crore pairs) for currencies whose
-   registry entry sets grouping: 'in' (INR, PKR). */
-function groupThousands(intStr) {
-  return intStr.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-}
-function groupIndian(intStr) {
-  if (intStr.length <= 3) return intStr;
-  var tail = intStr.slice(-3), head = intStr.slice(0, -3);
-  return head.replace(/\B(?=(\d{2})+(?!\d))/g, ',') + ',' + tail;
-}
-function money(n, cur) {
-  var code = isValidCurrency(cur) ? cur : 'USD';
-  var c = currencyOf(code);
-  if (!moneyVisible(code)) return c.symbol + '\u2022\u2022\u2022\u2022\u2022\u2022';
-  n = +n || 0;
-  var sign = n < 0 ? '-' : '';
-  var fixed = Math.abs(n).toFixed(c.decimals);
-  var dot = fixed.indexOf('.');
-  var intPart = dot >= 0 ? fixed.slice(0, dot) : fixed;
-  var fracPart = dot >= 0 ? fixed.slice(dot) : '';
-  var grouped = c.grouping === 'in' ? groupIndian(intPart) : groupThousands(intPart);
-  return sign + c.symbol + grouped + fracPart;
-}
-function esc(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-  });
-}
 
-/* ---------------- card designs (offline icon pack) ----------------
-   Original monogram artwork inspired by each product's colorway —
-   not the banks' actual logos. Square icons live in icons/banks/,
-   product card icons in icons/cards/. */
-var BASE_BANKS = [
-  { id: 'chase',              group: 'Chase',            name: 'Chase',            icon: 'icons/banks/chase.png' },
-  { id: 'chase-freedom',      group: 'Chase',            name: 'Freedom',          icon: 'icons/cards/chase-freedom.png' },
-  { id: 'chase-sapphire',     group: 'Chase',            name: 'Sapphire',         icon: 'icons/cards/chase-sapphire.png' },
-  { id: 'chase-slate',        group: 'Chase',            name: 'Slate',            icon: 'icons/cards/chase-slate.png' },
-  { id: 'chase-ink',          group: 'Chase',            name: 'Ink Business',              icon: 'icons/cards/chase-ink.png' },
-  { id: 'amex',               group: 'American Express', name: 'American Express', icon: 'icons/banks/amex.png' },
-  { id: 'amex-bluecash',      group: 'American Express', name: 'Blue Cash',        icon: 'icons/cards/amex-bluecash.png' },
-  { id: 'amex-gold',          group: 'American Express', name: 'Gold',             icon: 'icons/cards/amex-gold.png' },
-  { id: 'amex-platinum',      group: 'American Express', name: 'Platinum',         icon: 'icons/cards/amex-platinum.png' },
-  { id: 'amex-green',         group: 'American Express', name: 'Green',            icon: 'icons/cards/amex-green.png' },
-  { id: 'amex-hilton',        group: 'American Express', name: 'Hilton Honors',    icon: 'icons/cards/amex-hilton.png' },
-  { id: 'amex-hilton-surpass',group: 'American Express', name: 'Hilton Honors Surpass',   icon: 'icons/cards/amex-hilton-surpass.png' },
-  { id: 'amex-hilton-aspire', group: 'American Express', name: 'Hilton Honors Aspire',    icon: 'icons/cards/amex-hilton-aspire.png' },
-  { id: 'amex-delta-blue',    group: 'American Express', name: 'Delta SkyMiles Blue',       icon: 'icons/cards/amex-delta-blue.png' },
-  { id: 'amex-delta-gold',    group: 'American Express', name: 'Delta SkyMiles Gold',       icon: 'icons/cards/amex-delta-gold.png' },
-  { id: 'amex-delta-platinum',group: 'American Express', name: 'Delta SkyMiles Platinum',   icon: 'icons/cards/amex-delta-platinum.png' },
-  { id: 'amex-delta-reserve', group: 'American Express', name: 'Delta SkyMiles Reserve',    icon: 'icons/cards/amex-delta-reserve.png' },
-  { id: 'capitalone',         group: 'Capital One',      name: 'Capital One',      icon: 'icons/banks/capitalone.png' },
-  { id: 'capone-quicksilver', group: 'Capital One',      name: 'Quicksilver',      icon: 'icons/cards/capone-quicksilver.png' },
-  { id: 'capone-venture',     group: 'Capital One',      name: 'Venture',          icon: 'icons/cards/capone-venture.png' },
-  { id: 'capone-venturex',    group: 'Capital One',      name: 'Venture X',        icon: 'icons/cards/capone-venturex.png' },
-  { id: 'capone-savor',       group: 'Capital One',      name: 'Savor',            icon: 'icons/cards/capone-savor.png' },
-  { id: 'citi',               group: 'Citi',             name: 'Citi',             icon: 'icons/banks/citi.png' },
-  { id: 'citi-doublecash',    group: 'Citi',             name: 'Double Cash',      icon: 'icons/cards/citi-doublecash.png' },
-  { id: 'citi-customcash',    group: 'Citi',             name: 'Custom Cash',      icon: 'icons/cards/citi-customcash.png' },
-  { id: 'citi-strata',        group: 'Citi',             name: 'Strata',           icon: 'icons/cards/citi-strata.png' },
-  { id: 'citi-costco',        group: 'Citi',             name: 'Costco Anywhere',  icon: 'icons/cards/citi-costco.png' },
-  { id: 'discover',           group: 'Discover',         name: 'Discover',         icon: 'icons/banks/discover.png' },
-  { id: 'discover-it',        group: 'Discover',         name: 'Discover it',      icon: 'icons/cards/discover-it.png' },
-  { id: 'discover-miles',     group: 'Discover',         name: 'Miles',            icon: 'icons/cards/discover-miles.png' },
-  { id: 'discover-student',   group: 'Discover',         name: 'Student',          icon: 'icons/cards/discover-student.png' },
-  { id: 'bankofamerica',      group: 'Bank of America',  name: 'Bank of America',  icon: 'icons/banks/bankofamerica.png' },
-  { id: 'bofa-customized',    group: 'Bank of America',  name: 'Customized Cash Rewards',  icon: 'icons/cards/bofa-customized.png' },
-  { id: 'bofa-travel',        group: 'Bank of America',  name: 'Travel Rewards',   icon: 'icons/cards/bofa-travel.png' },
-  { id: 'bofa-premium',       group: 'Bank of America',  name: 'Premium Rewards',  icon: 'icons/cards/bofa-premium.png' },
-  { id: 'bofa-unlimited',     group: 'Bank of America',  name: 'Unlimited Cash Rewards',   icon: 'icons/cards/bofa-unlimited.png' },
-  { id: 'wellsfargo',         group: 'Wells Fargo',      name: 'Wells Fargo',      icon: 'icons/banks/wellsfargo.png' },
-  { id: 'wells-activecash',   group: 'Wells Fargo',      name: 'Active Cash',      icon: 'icons/cards/wells-activecash.png' },
-  { id: 'wells-autograph',    group: 'Wells Fargo',      name: 'Autograph',        icon: 'icons/cards/wells-autograph.png' },
-  { id: 'wells-reflect',      group: 'Wells Fargo',      name: 'Reflect',          icon: 'icons/cards/wells-reflect.png' },
-  { id: 'wells-bilt',         group: 'Wells Fargo',      name: 'Bilt Mastercard',             icon: 'icons/cards/wells-bilt.png' },
-  { id: 'visa',               group: 'Networks',         name: 'Visa',             icon: 'icons/banks/visa.png' },
-  { id: 'mastercard',         group: 'Networks',         name: 'Mastercard',       icon: 'icons/banks/mastercard.png' },
-  { id: 'usbank',             group: 'U.S. Bank',      name: 'U.S. Bank',        icon: 'icons/banks/usbank.png' },
-  { id: 'pnc',                group: 'PNC',      name: 'PNC',              icon: 'icons/banks/pnc.png' },
-  { id: 'tdbank',             group: 'TD Bank',      name: 'TD Bank',          icon: 'icons/banks/tdbank.png' },
-  { id: 'generic',            group: 'Other',            name: 'Generic card',     icon: 'icons/banks/generic.png' }
-];
-var BANKS = BASE_BANKS.concat(typeof CARD_DESIGNS !== 'undefined' ? CARD_DESIGNS : []);
-function bankOf(id) {
-  for (var i = 0; i < BANKS.length; i++) if (BANKS[i].id === id) return BANKS[i];
-  for (var j = 0; j < BANKS.length; j++) if (BANKS[j].id === 'generic') return BANKS[j];
-  return BANKS[0];
-}
-
-/* ---------------- investments ---------------- */
-var INVESTMENT_TYPES = ['Stocks', 'ETF', 'Index fund', 'Mutual fund', 'Crypto', 'Bonds', 'Retirement', 'Real estate', 'Other'];
-/* Current value of all holdings — this is what counts toward the total balance. */
-function investmentsTotal(st, cur) {
-  var list = (st && st.investments) || [];
-  return round2(list.reduce(function (s, inv) {
-    if (cur && entityCurrency(inv) !== cur) return s;
-    return s + (+inv.currentValue || 0);
-  }, 0));
-}
-function investmentsContributed(st, cur) {
-  var list = (st && st.investments) || [];
-  return round2(list.reduce(function (s, inv) {
-    if (cur && entityCurrency(inv) !== cur) return s;
-    return s + (+inv.contributed || 0);
-  }, 0));
-}
-function investmentGain(inv) { return round2((+inv.currentValue || 0) - (+inv.contributed || 0)); }
-
-/* ---------------- storage ---------------- */
-var KEY = 'finance-app-v1';
-function blankState() {
-  return { transactions: [], accounts: [], cards: [], goals: [], investments: [],
-    settings: { leadDays: 3, theme: 'system', defaultCurrency: 'USD',
-      driveClientId: '', driveAutoBackup: false, driveFolderId: '', driveFileId: '',
-      driveLastBackupAt: '', driveEmail: '' } };
-}
-/* Merge a parsed backup (or stored state) onto defaults so older backups
-   without newer settings fields still load. Never throws on bad input. */
-function normalizeState(obj) {
-  var b = blankState();
-  if (!obj || typeof obj !== 'object') return b;
-  ['transactions', 'accounts', 'cards', 'goals', 'investments'].forEach(function (k) {
-    if (Array.isArray(obj[k])) b[k] = obj[k];
-  });
-  b.investments = b.investments.filter(function (inv) { return inv && typeof inv === 'object' && inv.name; }).map(function (inv) {
-    return { id: inv.id || uid(), name: String(inv.name), type: INVESTMENT_TYPES.indexOf(inv.type) >= 0 ? inv.type : 'Other',
-      currency: isValidCurrency(inv.currency) ? inv.currency : 'USD',
-      contributed: Math.max(0, round2(+inv.contributed || 0)), currentValue: Math.max(0, round2(+inv.currentValue || 0)), note: String(inv.note || '') };
-  });
-  /* Older data has no currency on accounts/cards/goals: it was all USD. */
-  ['accounts', 'cards', 'goals'].forEach(function (k) {
-    b[k].forEach(function (e) { if (e && typeof e === 'object') e.currency = isValidCurrency(e.currency) ? e.currency : 'USD'; });
-  });
-  var s = obj.settings || {};
-  if (s.leadDays === 2 || s.leadDays === 3) b.settings.leadDays = s.leadDays;
-  if (s.theme === 'light' || s.theme === 'dark' || s.theme === 'system') b.settings.theme = s.theme;
-  if (isValidCurrency(s.defaultCurrency)) b.settings.defaultCurrency = s.defaultCurrency;
-  if (typeof s.driveClientId === 'string') b.settings.driveClientId = s.driveClientId;
-  if (typeof s.driveAutoBackup === 'boolean') b.settings.driveAutoBackup = s.driveAutoBackup;
-  if (typeof s.driveFolderId === 'string') b.settings.driveFolderId = s.driveFolderId;
-  if (typeof s.driveFileId === 'string') b.settings.driveFileId = s.driveFileId;
-  if (typeof s.driveLastBackupAt === 'string') b.settings.driveLastBackupAt = s.driveLastBackupAt;
-  if (typeof s.driveEmail === 'string') b.settings.driveEmail = s.driveEmail;
-  b.cards.forEach(function (c) { if (!c.bankId) c.bankId = 'generic'; });
-  return b;
-}
-function loadState() {
-  try {
-    var raw = null;
-    if (typeof localStorage !== 'undefined') raw = localStorage.getItem(KEY);
-    if (raw) return normalizeState(JSON.parse(raw));
-  } catch (e) { /* corrupted or unavailable: start fresh */ }
-  return blankState();
-}
-function persist(st) {
-  if (typeof localStorage === 'undefined') return false;
-  try { localStorage.setItem(KEY, JSON.stringify(st)); return true; }
-  catch (e) { return false; }
-}
-
-/* ---------------- domain logic (pure, testable) ---------------- */
-/* Ledger: balances are always recomputed from opening balances + transactions. */
-function recompute(st) {
-  var acctBal = {}, cardBal = {}, goalSaved = {};
-  st.accounts.forEach(function (a) { acctBal[a.id] = round2(a.openingBalance || 0); });
-  st.cards.forEach(function (c) { cardBal[c.id] = round2(c.openingBalance || 0); });
-  st.goals.forEach(function (g) { goalSaved[g.id] = round2(g.initialSaved || 0); });
-  var txs = st.transactions.slice().sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
-  txs.forEach(function (t) {
-    var amt = round2(+t.amount || 0);
-    if (t.kind === 'income') {
-      if (acctBal[t.accountId] == null) acctBal[t.accountId] = 0;
-      acctBal[t.accountId] = round2(acctBal[t.accountId] + amt);
-    } else if (t.kind === 'expense') {
-      if (t.methodType === 'card') {
-        if (cardBal[t.methodId] == null) cardBal[t.methodId] = 0;
-        cardBal[t.methodId] = round2(cardBal[t.methodId] + amt);
-      } else {
-        if (acctBal[t.methodId] == null) acctBal[t.methodId] = 0;
-        acctBal[t.methodId] = round2(acctBal[t.methodId] - amt);
-      }
-    } else if (t.kind === 'cardpayment') {
-      if (acctBal[t.accountId] == null) acctBal[t.accountId] = 0;
-      if (cardBal[t.cardId] == null) cardBal[t.cardId] = 0;
-      acctBal[t.accountId] = round2(acctBal[t.accountId] - amt);
-      cardBal[t.cardId] = round2(cardBal[t.cardId] - amt);
-    } else if (t.kind === 'saving') {
-      if (acctBal[t.accountId] == null) acctBal[t.accountId] = 0;
-      if (goalSaved[t.goalId] == null) goalSaved[t.goalId] = 0;
-      acctBal[t.accountId] = round2(acctBal[t.accountId] - amt);
-      goalSaved[t.goalId] = round2(goalSaved[t.goalId] + amt);
-    }
-  });
-  return { acctBal: acctBal, cardBal: cardBal, goalSaved: goalSaved };
-}
-
-/* Total balance shown in the header: bank accounts + investments.
-   Card debt is NOT subtracted here — it is tracked separately in Cards.
-   Pass a recompute() result as `bal` to avoid recomputing. */
-function accountsTotal(st, bal, cur) {
-  var b = bal || recompute(st);
-  return round2(st.accounts.reduce(function (s, a) {
-    if (cur && entityCurrency(a) !== cur) return s;
-    return s + (b.acctBal[a.id] || 0);
-  }, 0));
-}
-/* With `cur`: the total balance in that one currency. Without: the grand
-   sum (only meaningful for single-currency data — the UI always passes a
-   currency or uses totalsByCurrency, so currencies are never mixed on screen). */
-function totalBalance(st, bal, cur) {
-  return round2(accountsTotal(st, bal, cur) + investmentsTotal(st, cur));
-}
-/* The separate per-currency totals the UI renders: { USD: {...}, INR: {...} } */
-function totalsByCurrency(st, bal) {
-  var b = bal || recompute(st);
-  var out = {};
-  function bucket(code) {
-    if (!out[code]) out[code] = { accounts: 0, investments: 0, total: 0 };
-    return out[code];
-  }
-  st.accounts.forEach(function (a) { var bk = bucket(entityCurrency(a)); bk.accounts = round2(bk.accounts + (b.acctBal[a.id] || 0)); });
-  ((st && st.investments) || []).forEach(function (inv) { var bk = bucket(entityCurrency(inv)); bk.investments = round2(bk.investments + (+inv.currentValue || 0)); });
-  Object.keys(out).forEach(function (code) { out[code].total = round2(out[code].accounts + out[code].investments); });
-  return out;
-}
-/* Currencies present anywhere in the data, in registry order. */
-function currenciesInUse(st) {
-  var seen = {};
-  (st.accounts || []).forEach(function (a) { seen[entityCurrency(a)] = true; });
-  (st.cards || []).forEach(function (c) { seen[entityCurrency(c)] = true; });
-  (st.goals || []).forEach(function (g) { seen[entityCurrency(g)] = true; });
-  (st.investments || []).forEach(function (inv) { seen[entityCurrency(inv)] = true; });
-  (st.transactions || []).forEach(function (t) { seen[txCurrency(st, t)] = true; });
-  var list = CURRENCIES.map(function (c) { return c.code; }).filter(function (code) { return seen[code]; });
-  return list.length ? list : [(st.settings && st.settings.defaultCurrency) || 'USD'];
-}
-/* A transaction's currency comes from the entity it touches. */
-function txCurrency(st, t) {
-  if (!t) return 'USD';
-  function find(list, id) { for (var i = 0; i < (list || []).length; i++) if (list[i].id === id) return list[i]; return null; }
-  if (t.kind === 'income') return entityCurrency(find(st.accounts, t.accountId));
-  if (t.kind === 'expense') return t.methodType === 'card' ? entityCurrency(find(st.cards, t.methodId)) : entityCurrency(find(st.accounts, t.methodId));
-  if (t.kind === 'cardpayment') return entityCurrency(find(st.cards, t.cardId));
-  if (t.kind === 'saving') return entityCurrency(find(st.goals, t.goalId));
-  return 'USD';
-}
-
-function periodRange(view, refStr) {
-  var ref = parseDate(refStr), s, e, label;
-  if (view === 'daily') {
-    s = ref; e = ref;
-    label = ref.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-  } else if (view === 'weekly') {
-    var dow = (ref.getDay() + 6) % 7; // Monday start
-    s = addDays(ref, -dow); e = addDays(s, 6);
-    var f = { month: 'short', day: 'numeric' };
-    label = 'Week of ' + s.toLocaleDateString(undefined, f) + ' – ' + e.toLocaleDateString(undefined, f) + ', ' + e.getFullYear();
-  } else {
-    s = new Date(ref.getFullYear(), ref.getMonth(), 1);
-    e = new Date(ref.getFullYear(), ref.getMonth() + 1, 0);
-    label = ref.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-  }
-  return { start: fmtDate(s), end: fmtDate(e), label: label };
-}
-
-function summarize(st, view, refStr) {
-  var r = periodRange(view, refStr);
-  var inn = 0, out = 0, byCat = {};
-  st.transactions.forEach(function (t) {
-    if (t.date < r.start || t.date > r.end) return;
-    var amt = round2(+t.amount || 0);
-    if (t.kind === 'income') { inn = round2(inn + amt); }
-    else if (t.kind === 'expense') {
-      out = round2(out + amt);
-      var c = t.category || 'Other';
-      byCat[c] = round2((byCat[c] || 0) + amt);
-    } else if (t.kind === 'cardpayment') {
-      out = round2(out + amt);
-      byCat['Card payment'] = round2((byCat['Card payment'] || 0) + amt);
-    } else if (t.kind === 'saving') {
-      out = round2(out + amt);
-      byCat['Savings'] = round2((byCat['Savings'] || 0) + amt);
-    }
-  });
-  return { inn: inn, out: out, net: round2(inn - out), byCat: byCat, label: r.label };
-}
-
-/* Same math as summarize(), but every currency gets its own bucket —
-   period totals are never mixed across currencies. */
-function summarizeByCurrency(st, view, refStr) {
-  var r = periodRange(view, refStr);
-  var out = {};
-  function bucket(code) {
-    if (!out[code]) out[code] = { inn: 0, out: 0, net: 0, byCat: {} };
-    return out[code];
-  }
-  st.transactions.forEach(function (t) {
-    if (t.date < r.start || t.date > r.end) return;
-    var bk = bucket(txCurrency(st, t));
-    var amt = round2(+t.amount || 0);
-    if (t.kind === 'income') { bk.inn = round2(bk.inn + amt); }
-    else if (t.kind === 'expense') {
-      bk.out = round2(bk.out + amt);
-      var c = t.category || 'Other';
-      bk.byCat[c] = round2((bk.byCat[c] || 0) + amt);
-    } else if (t.kind === 'cardpayment') {
-      bk.out = round2(bk.out + amt);
-      bk.byCat['Card payment'] = round2((bk.byCat['Card payment'] || 0) + amt);
-    } else if (t.kind === 'saving') {
-      bk.out = round2(bk.out + amt);
-      bk.byCat['Savings'] = round2((bk.byCat['Savings'] || 0) + amt);
-    }
-  });
-  Object.keys(out).forEach(function (code) { out[code].net = round2(out[code].inn - out[code].out); });
-  return { label: r.label, currencies: out };
-}
-
-function nextDueDate(dueDay, fromStr) {
-  var f = parseDate(fromStr), y = f.getFullYear(), m = f.getMonth();
-  var d = new Date(y, m, clampDay(y, m, dueDay));
-  if (fmtDate(d) < fromStr) {
-    m++; if (m > 11) { m = 0; y++; }
-    d = new Date(y, m, clampDay(y, m, dueDay));
-  }
-  return d;
-}
-
-/* Twice-monthly plan: first payment ~2 weeks before final; final lands leadDays before due date. */
-function cardPlan(card, balance, leadDays, todayS) {
-  var today = todayS || todayStr();
-  balance = round2(+balance || 0);
-  if (balance <= 0) return { status: 'clear' };
-  var due = nextDueDate(card.dueDay, today);
-  var dueS = fmtDate(due);
-  var daysToDue = Math.round((due.getTime() - parseDate(today).getTime()) / DAY);
-  if (daysToDue <= leadDays) {
-    return { status: 'urgent', due: dueS, payments: [{ date: today, amount: balance, label: 'Pay now' }] };
-  }
-  var finalDate = addDaysStr(dueS, -leadDays);
-  var firstDate = addDaysStr(dueS, -(leadDays + 14));
-  if (firstDate < today) firstDate = today;
-  if (firstDate >= finalDate) firstDate = addDaysStr(finalDate, -1);
-  if (firstDate < today) firstDate = today;
-  var firstAmt = round2(balance / 2);
-  return {
-    status: 'scheduled', due: dueS,
-    payments: [
-      { date: firstDate, amount: firstAmt, label: 'First payment' },
-      { date: finalDate, amount: round2(balance - firstAmt), label: 'Final payment' }
-    ]
-  };
-}
-
-function savingsRoadmap(goal, saved, todayS) {
-  var today = todayS || todayStr();
-  saved = round2(+saved || 0);
-  var remaining = round2(goal.target - saved);
-  var daysLeft = Math.max(0, Math.round((parseDate(goal.targetDate).getTime() - parseDate(today).getTime()) / DAY));
-  if (remaining <= 0) return { done: true, remaining: 0, daysLeft: daysLeft, milestones: [] };
-  if (daysLeft <= 0) {
-    return { done: false, overdue: true, remaining: remaining, daysLeft: 0,
-      perDay: remaining, perWeek: remaining, perMonth: remaining, milestones: [] };
-  }
-  var perDay = remaining / daysLeft, milestones = [], w;
-  for (w = 1; w * 7 < daysLeft; w++) {
-    milestones.push({ date: addDaysStr(today, w * 7), target: round2(saved + perDay * w * 7) });
-  }
-  milestones.push({ date: goal.targetDate, target: round2(goal.target) });
-  return { done: false, remaining: remaining, daysLeft: daysLeft,
-    perDay: round2(perDay), perWeek: round2(perDay * 7), perMonth: round2(perDay * 30.44),
-    milestones: milestones };
-}
-
-/* ---------------- CSV (UTF-8 BOM + CRLF: Excel/Numbers/Sheets/LibreOffice safe) ---------------- */
-function csvCell(v) {
-  if (v == null) v = '';
-  v = String(v);
-  return (/[",\n\r]/.test(v)) ? '"' + v.replace(/"/g, '""') + '"' : v;
-}
-function toCSV(rows) {
-  return '﻿' + rows.map(function (r) { return r.map(csvCell).join(','); }).join('\r\n') + '\r\n';
-}
-function txCSV(st) {
-  var rows = [['id', 'date', 'kind', 'amount', 'currency', 'category', 'account', 'method', 'card', 'goal', 'note']];
-  var an = {}, cn = {}, gn = {};
-  st.accounts.forEach(function (a) { an[a.id] = a.name; });
-  st.cards.forEach(function (c) { cn[c.id] = c.name; });
-  st.goals.forEach(function (g) { gn[g.id] = g.name; });
-  st.transactions.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; }).forEach(function (t) {
-    rows.push([t.id, t.date, t.kind, (+t.amount).toFixed(2), txCurrency(st, t), t.category || '',
-      an[t.accountId] || '', t.methodType === 'card' ? 'card' : (t.methodType || ''),
-      cn[t.cardId || t.methodId] || '', gn[t.goalId] || '', t.note || '']);
-  });
-  return toCSV(rows);
-}
-function accountsCSV(st) {
-  var bal = recompute(st).acctBal;
-  var rows = [['id', 'name', 'currency', 'current_balance']];
-  st.accounts.forEach(function (a) { rows.push([a.id, a.name, entityCurrency(a), (bal[a.id] || 0).toFixed(2)]); });
-  return toCSV(rows);
-}
-function cardsCSV(st) {
-  var bal = recompute(st).cardBal;
-  var rows = [['id', 'name', 'currency', 'apr', 'due_day', 'limit', 'min_payment', 'current_balance']];
-  st.cards.forEach(function (c) {
-    rows.push([c.id, c.name, entityCurrency(c), c.apr, c.dueDay, c.limit || '', c.minPayment || '', (bal[c.id] || 0).toFixed(2)]);
-  });
-  return toCSV(rows);
-}
-function investmentsCSV(st) {
-  var rows = [['id', 'name', 'type', 'currency', 'amount_invested', 'current_value', 'gain_loss', 'note']];
-  ((st && st.investments) || []).forEach(function (inv) {
-    rows.push([inv.id, inv.name, inv.type || 'Other', entityCurrency(inv), (+inv.contributed || 0).toFixed(2),
-      (+inv.currentValue || 0).toFixed(2), investmentGain(inv).toFixed(2), inv.note || '']);
-  });
-  return toCSV(rows);
-}
-function goalsCSV(st) {
-  var sv = recompute(st).goalSaved;
-  var rows = [['id', 'name', 'currency', 'target', 'saved', 'target_date']];
-  st.goals.forEach(function (g) {
-    rows.push([g.id, g.name, entityCurrency(g), (+g.target).toFixed(2), (sv[g.id] || 0).toFixed(2), g.targetDate]);
-  });
-  return toCSV(rows);
-}
-
-/* ---------------- backup / restore ---------------- */
-function validateBackup(obj) {
-  if (!obj || typeof obj !== 'object') return 'Not a valid backup file.';
-  /* `investments` is intentionally not required: backups made before
-     Investments existed must still restore (they load with no holdings). */
-  var need = ['transactions', 'accounts', 'cards', 'goals'];
-  for (var i = 0; i < need.length; i++) if (!Array.isArray(obj[need[i]])) return 'Backup is missing "' + need[i] + '".';
-  return null;
-}
-
-/* ---------------- encrypted cloud backup (Google Drive) ----------------
-   The backup is encrypted on this device with PBKDF2-SHA256 + AES-GCM-256
-   before anything is uploaded. The passphrase is never stored anywhere
-   (not in localStorage, not in Drive) and Google only ever sees ciphertext. */
-var DRIVE = {
-  scope: 'https://www.googleapis.com/auth/drive.file',
-  folderName: 'Finance App',
-  fileName: 'finance-backup.enc.json',
-  folderMime: 'application/vnd.google-apps.folder',
-  kdfIterations: 600000
-};
-function getSubtle() {
-  try {
-    var c = (typeof crypto !== 'undefined') ? crypto : null;
-    return (c && c.subtle) ? c.subtle : null;
-  } catch (e) { return null; }
-}
-function b64encode(bytes) {
-  var s = '';
-  for (var i = 0; i < bytes.length; i += 8192) {
-    s += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
-  }
-  return btoa(s);
-}
-function b64decode(str) {
-  var bin = atob(str), out = new Uint8Array(bin.length);
-  for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-function driveErrorMessage(e) { return (e && e.message) ? e.message : 'Unknown error'; }
-async function deriveBackupKey(passphrase, salt) {
-  var subtle = getSubtle();
-  if (!subtle) throw new Error('Cloud backup needs a secure (https) connection. Use the installed app, not the Wi-Fi preview.');
-  var base = await subtle.importKey('raw', new TextEncoder().encode(passphrase), 'PBKDF2', false, ['deriveKey']);
-  return subtle.deriveKey(
-    { name: 'PBKDF2', salt: salt, iterations: DRIVE.kdfIterations, hash: 'SHA-256' },
-    base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-}
-function randomBytes(n) {
-  var c = (typeof crypto !== 'undefined') ? crypto : null;
-  if (!c || !c.getRandomValues) throw new Error('Cloud backup needs a secure (https) connection. Use the installed app, not the Wi-Fi preview.');
-  return c.getRandomValues(new Uint8Array(n));
-}
-/* Returns the encrypted envelope as a JSON string. Throws on bad input. */
-async function encryptBackup(stateObj, passphrase) {
-  if (!passphrase) throw new Error('Enter a backup passphrase.');
-  var subtle = getSubtle();
-  if (!subtle) throw new Error('Cloud backup needs a secure (https) connection. Use the installed app, not the Wi-Fi preview.');
-  var salt = randomBytes(16), iv = randomBytes(12);
-  var key = await deriveBackupKey(passphrase, salt);
-  var cipher = await subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, new TextEncoder().encode(JSON.stringify(stateObj)));
-  return JSON.stringify({ v: 1, salt: b64encode(salt), iv: b64encode(iv), data: b64encode(new Uint8Array(cipher)) });
-}
-/* Decrypts an envelope string and returns the parsed, validated backup object. */
-async function decryptBackup(envelopeStr, passphrase) {
-  if (!passphrase) throw new Error('Enter a backup passphrase.');
-  var env;
-  try { env = JSON.parse(envelopeStr); } catch (e) { throw new Error('This is not a Finance App cloud backup.'); }
-  if (!env || env.v !== 1 || typeof env.salt !== 'string' || typeof env.iv !== 'string' || typeof env.data !== 'string') {
-    throw new Error('This is not a Finance App cloud backup.');
-  }
-  var subtle = getSubtle();
-  if (!subtle) throw new Error('Cloud backup needs a secure (https) connection. Use the installed app, not the Wi-Fi preview.');
-  try {
-    var key = await deriveBackupKey(passphrase, b64decode(env.salt));
-    var plain = await subtle.decrypt({ name: 'AES-GCM', iv: b64decode(env.iv) }, key, b64decode(env.data));
-    var obj = JSON.parse(new TextDecoder().decode(plain));
-    var err = validateBackup(obj);
-    if (err) throw new Error(err);
-    return obj;
-  } catch (e) {
-    if (e.message === 'This is not a Finance App cloud backup.') throw e;
-    throw new Error('Wrong passphrase, or the backup is damaged.');
-  }
-}
-/* Parses a URL fragment like "#access_token=...&expires_in=3600" into an object. */
-function parseFragment(hash) {
-  var out = {};
-  var s = String(hash || '').replace(/^#/, '');
-  s.split('&').forEach(function (pair) {
-    if (!pair) return;
-    var eq = pair.indexOf('=');
-    var k = decodeURIComponent(eq === -1 ? pair : pair.slice(0, eq));
-    var v = decodeURIComponent(eq === -1 ? '' : pair.slice(eq + 1));
-    if (k) out[k] = v;
-  });
-  return out;
-}
-
-/* ---------------- Google Drive API (fetch-injectable for tests) ---------------- */
-function driveFetchImpl(fetchImpl) {
-  var f = fetchImpl || ((typeof fetch !== 'undefined') ? fetch : null);
-  if (!f) throw new Error('Network fetch is not available in this browser.');
-  return f;
-}
-async function driveFetch(url, token, opts, fetchImpl) {
-  var res = await driveFetchImpl(fetchImpl)(url, Object.assign({}, opts || {}, {
-    headers: Object.assign({ Authorization: 'Bearer ' + token }, (opts && opts.headers) || {})
-  }));
-  if (res.ok) return res;
-  var detail = '';
-  try {
-    var body = await res.json();
-    if (body && body.error && body.error.message) detail = ': ' + body.error.message;
-  } catch (e) { /* keep status-only message */ }
-  throw new Error('Google Drive error ' + res.status + detail);
-}
-function driveEscapeQuery(s) { return String(s).replace(/'/g, "\\'"); }
-async function driveFindFile(token, name, fetchImpl, mimeType) {
-  var q = "name = '" + driveEscapeQuery(name) + "' and trashed = false";
-  if (mimeType) q += " and mimeType = '" + driveEscapeQuery(mimeType) + "'";
-  var url = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(q) +
-    '&spaces=drive&fields=' + encodeURIComponent('files(id,name,modifiedTime,trashed,mimeType)');
-  var res = await driveFetch(url, token, { method: 'GET' }, fetchImpl);
-  var body = await res.json();
-  var files = (body && body.files) || [];
-  return files.length ? files[0] : null;
-}
-async function driveGetFile(token, fileId, fetchImpl) {
-  var url = 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) +
-    '?fields=' + encodeURIComponent('id,name,trashed,mimeType');
-  var res = await driveFetch(url, token, { method: 'GET' }, fetchImpl);
-  return res.json();
-}
-async function driveCreateFolder(token, fetchImpl) {
-  var url = 'https://www.googleapis.com/drive/v3/files';
-  var res = await driveFetch(url, token, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: DRIVE.folderName, mimeType: DRIVE.folderMime })
-  }, fetchImpl);
-  var body = await res.json();
-  return body.id;
-}
-async function driveEnsureFolder(token, fetchImpl, knownId) {
-  if (knownId) {
-    try {
-      var meta = await driveGetFile(token, knownId, fetchImpl);
-      if (meta && !meta.trashed && meta.mimeType === DRIVE.folderMime) return knownId;
-    } catch (e) { /* stale id: fall through to search/create */ }
-  }
-  var found = await driveFindFile(token, DRIVE.folderName, fetchImpl, DRIVE.folderMime);
-  if (found) return found.id;
-  return driveCreateFolder(token, fetchImpl);
-}
-/* Creates the backup file (no fileId) or overwrites it (fileId given). Returns the file id. */
-async function driveUploadBackup(token, folderId, fileId, content, fetchImpl) {
-  if (fileId) {
-    var updateUrl = 'https://www.googleapis.com/upload/drive/v3/files/' + encodeURIComponent(fileId) + '?uploadType=media';
-    var up = await driveFetch(updateUrl, token, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: content
-    }, fetchImpl);
-    var upBody = await up.json();
-    return (upBody && upBody.id) || fileId;
-  }
-  var boundary = 'finance-app-' + uid();
-  var metadata = JSON.stringify({ name: DRIVE.fileName, mimeType: 'application/json', parents: [folderId] });
-  var body = '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + metadata +
-    '\r\n--' + boundary + '\r\nContent-Type: application/json\r\n\r\n' + content +
-    '\r\n--' + boundary + '--';
-  var createUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-  var res = await driveFetch(createUrl, token, {
-    method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + boundary }, body: body
-  }, fetchImpl);
-  var created = await res.json();
-  if (!created || !created.id) throw new Error('Google Drive did not return a file id for the backup.');
-  return created.id;
-}
-async function driveDownloadBackup(token, fileId, fetchImpl) {
-  var url = 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media';
-  var res = await driveFetch(url, token, { method: 'GET' }, fetchImpl);
-  return res.text();
-}
-async function driveAbout(token, fetchImpl) {
-  var url = 'https://www.googleapis.com/drive/v3/about?fields=' + encodeURIComponent('user(emailAddress,displayName)');
-  var res = await driveFetch(url, token, { method: 'GET' }, fetchImpl);
-  var body = await res.json();
-  return (body && body.user) || {};
-}
-
-/* Due dates repeat monthly. Returns { dayNumber: [card, ...] } for the given month (0-11). */
-function dueDatesInMonth(cards, year, month) {
-  var daysInMonth = new Date(year, month + 1, 0).getDate();
-  var map = {};
-  cards.forEach(function (c) {
-    var day = Math.min(c.dueDay, daysInMonth);
-    if (!map[day]) map[day] = [];
-    map[day].push(c);
-  });
-  return map;
-}
-
-/* ---------------- reminders (local) ---------------- */
-function dueReminders(st, todayS) {
-  var today = todayS || todayStr();
-  var items = [];
-  var bal = recompute(st);
-  var soon = addDaysStr(today, 3);
-  st.cards.forEach(function (c) {
-    var b = bal.cardBal[c.id] || 0;
-    if (b <= 0) return;
-    var plan = cardPlan(c, b, st.settings.leadDays, today);
-    if (plan.status === 'urgent') {
-      items.push({ kind: 'card', urgent: true, text: c.name + ': pay ' + money(b, entityCurrency(c)) + ' now — due ' + plan.due + '.' });
-    } else if (plan.status === 'scheduled') {
-      plan.payments.forEach(function (p) {
-        if (p.date <= soon) items.push({ kind: 'card', urgent: p.date <= today, text: c.name + ': ' + p.label.toLowerCase() + ' of ' + money(p.amount, entityCurrency(c)) + ' on ' + p.date + ' (due ' + plan.due + ').' });
-      });
-    }
-  });
-  st.goals.forEach(function (g) {
-    var saved = bal.goalSaved[g.id] || 0;
-    var rm = savingsRoadmap(g, saved, today);
-    if (!rm.done && !rm.overdue && rm.remaining > 0 && rm.daysLeft <= 14) {
-      items.push({ kind: 'goal', urgent: false, text: g.name + ': ' + money(rm.remaining, entityCurrency(g)) + ' to go in ' + rm.daysLeft + ' days (' + money(rm.perDay, entityCurrency(g)) + '/day).' });
-    }
-  });
-  return items;
-}
-function notifyUser(title, body) {
-  try {
-    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-      new Notification(title, { body: body });
-      return true;
-    }
-  } catch (e) {}
-  return false;
-}
-
-/* ---------------- theme ---------------- */
-function resolveTheme(setting, prefersDark) {
-  if (setting === 'dark') return 'dark';
-  if (setting === 'light') return 'light';
-  return prefersDark ? 'dark' : 'light'; // 'system' or unknown falls back to device
-}
-function devicePrefersDark() {
-  try { return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); }
-  catch (e) { return false; }
-}
-function applyTheme() {
-  var t = resolveTheme(state.settings.theme, devicePrefersDark());
-  try {
-    document.documentElement.dataset.theme = t;
-    var meta = document.getElementById('metaThemeColor') || document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', t === 'dark' ? '#0E1B17' : '#0E7C6B');
-    var toggle = document.getElementById('btnThemeToggle');
-    if (toggle) {
-      toggle.textContent = t === 'dark' ? '☀️' : '🌙';
-      toggle.setAttribute('aria-label', t === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
-      toggle.setAttribute('aria-pressed', String(t === 'dark'));
-    }
-  } catch (e) {}
-}
-function toggleTheme() {
-  var current = resolveTheme(state.settings.theme, devicePrefersDark());
-  state.settings.theme = current === 'dark' ? 'light' : 'dark';
-  applyTheme();
-  saveAndRender(current === 'dark' ? 'Light mode on.' : 'Dark mode on.');
-}
-
-/* ---------------- download helper ---------------- */
-function download(name, content, mime) {
-  var blob = new Blob([content], { type: mime || 'text/plain;charset=utf-8' });
-  var a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
-}
-
-/* ---------------- app state + rendering ---------------- */
-var state = null;
-var ui = { tab: 'overview', periodView: 'monthly', periodRef: todayStr(), activityFilter: 'all', openGoal: null, calRef: todayStr(), calDay: null, chartCurrency: null, carouselIndex: 0, selectedCurrency: null, countryOpen: false };
-var INCOME_CATS = ['Paycheck', 'Freelance', 'Interest', 'Gift', 'Other'];
-var EXPENSE_CATS = ['Groceries', 'Dining', 'Transport', 'Housing', 'Utilities', 'Health', 'Shopping', 'Entertainment', 'Travel', 'Fees', 'Other'];
-var CHART_COLORS = ['#0E7C6B', '#35B06F', '#E3B341', '#E07856', '#4E7FA6', '#8A6FD1', '#C2547A', '#7FA88F'];
-
-function $(id) { return document.getElementById(id); }
-function toast(msg) {
-  var t = $('toast'); t.textContent = msg; t.classList.remove('hidden');
-  clearTimeout(t._h); t._h = setTimeout(function () { t.classList.add('hidden'); }, 2600);
-}
-function nameOf(list, id) {
-  for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i].name;
-  return '—';
-}
-function showTab(name) {
-  ui.tab = name;
-  if (name !== 'overview') { var fb = $('btnAdd'); if (fb) { fb.setAttribute('aria-label', 'Add entry'); fb.title = 'Add entry'; } }
-  document.querySelectorAll('.tabbar button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === name); });
-  document.querySelectorAll('.view').forEach(function (v) { v.classList.toggle('active', v.id === 'view-' + name); });
-  render();
-}
-
-function drawChart(canvas, byCat, cur) {
-  var dpr = window.devicePixelRatio || 1;
-  var w = canvas.clientWidth || canvas.parentElement.clientWidth || 300, h = 180;
-  canvas.width = w * dpr; canvas.height = h * dpr;
-  canvas.style.height = h + 'px';
-  var darkMode = false;
-  try { darkMode = document.documentElement.getAttribute('data-theme') === 'dark'; } catch (e) {}
-  var inkCol = darkMode ? '#EDE8DC' : '#2C2A25';
-  var mutCol = darkMode ? '#A79E8B' : '#8A8375';
-  var ctx = canvas.getContext('2d'); if (!ctx) return; ctx.scale(dpr, dpr); ctx.clearRect(0, 0, w, h);
-  var entries = Object.keys(byCat).map(function (k) { return [k, byCat[k]]; })
-    .sort(function (a, b) { return b[1] - a[1]; }).slice(0, 8);
-  if (!entries.length) {
-    ctx.fillStyle = mutCol; ctx.font = '13px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('No spending in this period', w / 2, h / 2);
-    return;
-  }
-  var max = entries[0][1], padL = 8, padB = 34, padT = 12;
-  var bw = (w - padL * 2) / entries.length, bh = h - padB - padT;
-  ctx.textAlign = 'center';
-  entries.forEach(function (e, i) {
-    var x = padL + i * bw + 4, bwid = bw - 8, bhgt = Math.max(3, (e[1] / max) * bh);
-    var y = padT + (bh - bhgt);
-    ctx.fillStyle = CHART_COLORS[i % CHART_COLORS.length];
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(x, y, bwid, bhgt, 4); else ctx.rect(x, y, bwid, bhgt);
-    ctx.fill();
-    ctx.fillStyle = inkCol; ctx.font = '600 11px sans-serif';
-    ctx.fillText(money(e[1], cur), x + bwid / 2, y - 4);
-    ctx.fillStyle = mutCol; ctx.font = '10px sans-serif';
-    var label = e[0].length > 10 ? e[0].slice(0, 9) + '…' : e[0];
-    ctx.fillText(label, x + bwid / 2, h - 18);
-  });
-}
-
-function updateBalanceToggle() {
-  var b = $('btnBalanceToggle'); if (!b) return;
-  b.textContent = balanceHidden ? '\uD83D\uDC41' : '\uD83D\uDE48';
-  b.setAttribute('aria-label', balanceHidden ? 'Show balances' : 'Hide balances');
-  b.setAttribute('aria-pressed', String(!balanceHidden));
-  b.title = balanceHidden ? 'Show balances' : 'Hide balances';
-}
-function toggleBalanceVisibility() {
-  setBalanceHidden(!balanceHidden);
-  countryVis = {}; /* the header eye is the master switch: it resets every per-country override */
-  render();
-}
-
-/* Opening view: one big swipeable panel per country that actually has
-   balance data (a bank account or an investment); the next country peeks
-   in from the right. The visible / tapped country is the SELECTED one —
-   the whole snapshot below follows it. Balances render through money(),
-   so the privacy toggle masks every figure here automatically. */
-function balanceCodes(bal) {
-  var codes = Object.keys(totalsByCurrency(state, bal));
-  if (!codes.length) codes = [state.settings.defaultCurrency || 'USD'];
-  return codes;
-}
-function selectedCurrency(bal) {
-  var codes = balanceCodes(bal);
-  if (!ui.selectedCurrency || codes.indexOf(ui.selectedCurrency) < 0) {
-    ui.selectedCurrency = codes[Math.min(ui.carouselIndex || 0, codes.length - 1)];
-  }
-  return ui.selectedCurrency;
-}
-function renderBalanceCarousel(bal) {
-  var wrap = $('balanceCarousel'); if (!wrap) return;
-  var byCur = totalsByCurrency(state, bal);
-  var codes = balanceCodes(bal);
-  var sel = selectedCurrency(bal);
-  wrap.innerHTML = codes.map(function (code, idx) {
-    var t = byCur[code] || { accounts: 0, investments: 0, total: 0 };
-    var c = currencyOf(code);
-    var vis = Object.prototype.hasOwnProperty.call(countryVis, code) ? countryVis[code] : !balanceHidden;
-    var nAcct = state.accounts.filter(function (a) { return entityCurrency(a) === code; }).length;
-    var nInv = (state.investments || []).filter(function (inv) { return entityCurrency(inv) === code; }).length;
-    return '<div class="balance-slide g' + (idx % 6) + (code === sel ? ' sel' : '') + '" data-cur="' + esc(code) + '" role="button" tabindex="0" aria-label="Open ' + esc(c.country) + '">' +
-      '<div class="bs-top"><span class="bs-flag">' + c.flag + '</span><span class="bs-country">' + esc(c.country) + '</span><span class="bs-code">' + esc(code) + '</span>' +
-      '<button class="bs-eye" data-eye="' + esc(code) + '" aria-label="' + (vis ? 'Hide' : 'Show') + ' ' + esc(c.country) + ' balance" aria-pressed="' + String(vis) + '" title="' + (vis ? 'Hide balance' : 'Show balance') + '">' + (vis ? '\uD83D\uDE48' : '\uD83D\uDC41') + '</button></div>' +
-      '<div><div class="bs-label">Total balance</div>' +
-      '<div class="bs-value">' + money(t.total, code) + '</div>' +
-      '<div class="bs-split">Bank accounts <strong>' + money(t.accounts, code) + '</strong> \u00B7 Investments <strong>' + money(t.investments, code) + '</strong></div>' +
-      '<div class="bs-meta">' + nAcct + (nAcct === 1 ? ' account' : ' accounts') + ' \u00B7 ' + nInv + (nInv === 1 ? ' holding' : ' holdings') + '</div></div>' +
-      '</div>';
-  }).join('');
-  var dots = $('balanceDots');
-  if (dots) {
-    dots.innerHTML = codes.map(function (code, i) {
-      return '<button class="cdot' + (code === sel ? ' on' : '') + '" data-slide="' + i + '" aria-label="Show ' + esc(code) + ' balance"></button>';
-    }).join('');
-  }
-  if (ui.carouselIndex && ui.carouselIndex >= codes.length) ui.carouselIndex = 0;
-
-  /* The main screen is the country carousel alone. The detail cards
-     (history, spending, upcoming, savings pace) belong to an OPENED
-     country: hidden on the main screen, shown full-page once a country
-     is opened from its panel (see init), and hidden again on return. */
-  var open = !!ui.countryOpen;
-  var ov = $('view-overview');
-  if (ov) ov.classList.toggle('country-open', open);
-  wrap.classList.toggle('hidden', open);
-  if (dots) dots.classList.toggle('hidden', open);
-  ['cardHistory', 'cardSpending', 'cardUpcoming', 'cardPace'].forEach(function (id) {
-    var el = $(id); if (el) el.classList.toggle('hidden', !open);
-  });
-  var bar = $('countryOpenBar');
-  if (bar) {
-    bar.classList.toggle('hidden', !open);
-    if (open) {
-      var oc = currencyOf(sel);
-      var ot = $('countryOpenTitle');
-      if (ot) ot.textContent = oc.flag + ' ' + oc.country + ' \u00B7 ' + sel;
-    }
-  }
-  var fab = $('btnAdd');
-  if (fab) {
-    var fabLabel = open ? 'Add to ' + currencyOf(sel).country : 'Add a country';
-    fab.setAttribute('aria-label', fabLabel);
-    fab.title = fabLabel;
-  }
-}
-
-function render() {
-  var bal = recompute(state);
-  updateBalanceToggle();
-  renderBalanceCarousel(bal);
-
-  // reminders banner
-  var rems = dueReminders(state, todayStr());
-  var banner = $('reminderBanner');
-  if (rems.length) {
-    banner.innerHTML = '⏰ ' + esc(rems[0].text) + (rems.length > 1 ? ' (+' + (rems.length - 1) + ' more — see Home)' : '');
-    banner.classList.remove('hidden');
-  } else banner.classList.add('hidden');
-
-  renderOverview(bal); renderActivity(bal); renderCards(bal); renderAccounts(bal); renderInvestments(bal); renderGoals(bal); renderCalendar(bal); renderSettings();
-}
-
-/* Selected-country overview: everything below the country panels follows
-   the SELECTED country only — its transaction history, its spending
-   chart and its upcoming checklist. Currencies are never mixed here. */
-function renderOverview(bal) {
-  var sel = selectedCurrency(bal);
-  revealCurrency = ui.countryOpen ? sel : null; /* an opened country shows its values */
-
-  /* Spending figures for the chart below are the current month's. */
-  var s = summarizeByCurrency(state, 'monthly', todayStr());
-  var sc = s.currencies[sel] || { inn: 0, out: 0, net: 0, byCat: {} };
-
-  /* Transaction history: the selected country's most recent activity,
-     newest first (latest 8; the full list lives in the Activity tab). */
-  var histEl = $('homeTxList');
-  if (histEl) {
-    var hist = state.transactions
-      .filter(function (t) { return txCurrency(state, t) === sel; })
-      .map(function (t, i) { return { t: t, i: i }; })
-      .sort(function (a, b) { if (a.t.date !== b.t.date) return a.t.date < b.t.date ? 1 : -1; return b.i - a.i; })
-      .slice(0, 8)
-      .map(function (x) { return x.t; });
-    histEl.innerHTML = hist.length ? hist.map(txLine).join('') : '<div class="empty">No transactions yet for this country.</div>';
-  }
-
-  /* Spending by category: the selected country's chart for this period */
-  var chartData = sc.byCat || {};
-  var hasSpend = Object.keys(chartData).length > 0;
-  var cvs = $('catChart');
-  if (cvs) cvs.classList.toggle('hidden', !hasSpend);
-  var catEmpty = $('catEmpty');
-  if (catEmpty) catEmpty.classList.toggle('hidden', hasSpend);
-  ui.chartCurrency = sel;
-  if (hasSpend) drawChart(cvs, chartData, sel);
-  var keys = Object.keys(chartData).sort(function (a, b) { return chartData[b] - chartData[a]; }).slice(0, 8);
-  $('catLegend').innerHTML = keys.map(function (k, i) {
-    return '<span><span class="sw" style="background:' + CHART_COLORS[i % CHART_COLORS.length] + '"></span>' + esc(k) + ' ' + money(chartData[k], sel) + '</span>';
-  }).join('');
-
-  /* Upcoming checklist: this country's card payments due within 14 days,
-     plus its savings goals landing within 30 days. */
-  var up = [];
-  state.cards.forEach(function (c) {
-    if (entityCurrency(c) !== sel) return;
-    var b = bal.cardBal[c.id] || 0; if (b <= 0) return;
-    var plan = cardPlan(c, b, state.settings.leadDays, todayStr());
-    if (plan.status === 'clear') return;
-    plan.payments.forEach(function (p) {
-      if (p.date <= addDaysStr(todayStr(), 14)) {
-        up.push('<div class="item check-item"><span class="check-dot">\u25CB</span><div class="main"><div class="title">' + esc(c.name) + '</div><div class="sub">' +
-          esc(p.label) + ' \u00B7 due ' + esc(plan.due) + (plan.status === 'urgent' ? ' <span class="pill urgent">PAY NOW</span>' : '') +
-          '</div></div><div class="amt">' + money(p.amount, sel) + '</div></div>');
-      }
-    });
-  });
-  state.goals.forEach(function (g) {
-    if (entityCurrency(g) !== sel) return;
-    var saved = bal.goalSaved[g.id] || 0;
-    var rm = savingsRoadmap(g, saved, todayStr());
-    if (rm.done || rm.overdue || rm.daysLeft > 30) return;
-    up.push('<div class="item check-item"><span class="check-dot">\u25CB</span><div class="main"><div class="title">Save for ' + esc(g.name) + '</div><div class="sub">' +
-      'Target ' + esc(g.targetDate) + ' \u00B7 ' + rm.daysLeft + (rm.daysLeft === 1 ? ' day' : ' days') + ' left \u00B7 ' + money(rm.perDay, sel) + '/day' +
-      '</div></div><div class="amt">' + money(rm.remaining, sel) + ' to go</div></div>');
-  });
-  $('upcomingList').innerHTML = up.length ? up.join('') : '<div class="empty">Your upcoming items will appear here.</div>';
-
-  var pace = [];
-  state.goals.forEach(function (g) {
-    var saved = bal.goalSaved[g.id] || 0;
-    var rm = savingsRoadmap(g, saved, todayStr());
-    if (rm.done) pace.push('<div class="item"><div class="main"><div class="title">' + esc(g.name) + '</div><div class="sub">Goal reached 🎉</div></div><div class="amt pos">' + money(saved, entityCurrency(g)) + '</div></div>');
-    else if (!rm.overdue) pace.push('<div class="item"><div class="main"><div class="title">' + esc(g.name) + '</div><div class="sub">' + money(rm.perDay, entityCurrency(g)) + '/day · ' + rm.daysLeft + ' days left</div></div><div class="amt">' + money(rm.remaining, entityCurrency(g)) + ' to go</div></div>');
-  });
-  $('savingsPace').innerHTML = pace.length ? pace.join('') : '<div class="empty">No savings goals yet.</div>';
-  revealCurrency = null;
-}
-
-function txLine(t) {
-  var cur = txCurrency(state, t);
-  var amtCls = t.kind === 'income' ? 'pos' : 'neg';
-  var sign = t.kind === 'income' ? '+' : '−';
-  var desc = t.kind === 'income' ? 'Income · ' + (t.category || '') :
-    t.kind === 'expense' ? (t.category || 'Expense') + ' · ' + (t.methodType === 'card' ? nameOf(state.cards, t.methodId) : nameOf(state.accounts, t.methodId)) :
-    t.kind === 'cardpayment' ? 'Card payment · ' + nameOf(state.cards, t.cardId) :
-    'Savings · ' + nameOf(state.goals, t.goalId);
-  return '<div class="item" data-tx="' + t.id + '"><div class="main"><div class="title">' + sign + money(t.amount, cur) + '</div>' +
-    '<div class="sub">' + t.date + ' · ' + esc(cur) + ' · ' + esc(desc) + (t.note ? ' · ' + esc(t.note) : '') + '</div></div>' +
-    '<div class="amt ' + amtCls + '">' + sign + money(t.amount, cur) + '</div></div>';
-}
-
-function renderActivity() {
-  var list = state.transactions.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; });
-  if (ui.activityFilter !== 'all') list = list.filter(function (t) { return t.kind === ui.activityFilter; });
-  $('txList').innerHTML = list.length ? list.slice(0, 200).map(txLine).join('') : '<div class="empty">No entries yet. Tap ＋ to add one.</div>';
-  $('txList').querySelectorAll('.item').forEach(function (el) {
-    el.addEventListener('click', function () { openTxModal(el.dataset.tx); });
-  });
-}
-
-function renderCards(bal) {
-  var html = state.cards.map(function (c) {
-    var b = bal.cardBal[c.id] || 0;
-    var util = c.limit ? Math.round(b / c.limit * 100) : null;
-    var bk = bankOf(c.bankId);
-    return '<div class="item"><img class="card-ico" src="' + bk.icon + '" alt="' + esc(bk.name) + '">' +
-      '<div class="main"><div class="title">' + esc(c.name) + '</div>' +
-      '<div class="sub">APR ' + esc(String(c.apr)) + '% · due day ' + c.dueDay +
-      (c.minPayment ? ' · min ' + money(c.minPayment, entityCurrency(c)) : '') + (util != null ? ' · ' + util + '% of limit' : '') + '</div>' +
-      '<div class="progress"><div style="width:' + Math.min(100, util || 0) + '%"></div></div></div>' +
-      '<div style="text-align:right"><div class="amt">' + money(b, entityCurrency(c)) + '</div>' +
-      '<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end">' +
-      '<button class="btn small" data-paycard="' + c.id + '">Pay</button>' +
-      '<button class="btn small ghost" data-editcard="' + c.id + '">Edit</button></div></div></div>';
-  }).join('');
-  $('cardList').innerHTML = html || '<div class="empty">No cards yet.</div>';
-  $('cardList').querySelectorAll('[data-paycard]').forEach(function (btn) {
-    btn.addEventListener('click', function (e) { e.stopPropagation(); openTxModal(null, 'cardpayment', { cardId: btn.dataset.paycard }); });
-  });
-  $('cardList').querySelectorAll('[data-editcard]').forEach(function (btn) {
-    btn.addEventListener('click', function (e) { e.stopPropagation(); openCardModal(btn.dataset.editcard); });
-  });
-
-  var plans = state.cards.map(function (c) {
-    var b = bal.cardBal[c.id] || 0;
-    var plan = cardPlan(c, b, state.settings.leadDays, todayStr());
-    if (plan.status === 'clear') return '';
-    var rows = plan.payments.map(function (p) {
-      return '<div class="kv"><span class="k">' + esc(p.label) + ' · ' + esc(p.date) + '</span><span>' + money(p.amount, entityCurrency(c)) + '</span></div>';
-    }).join('');
-    return '<div class="item" style="display:block"><div class="row-between"><div class="title">' + esc(c.name) + '</div>' +
-      (plan.status === 'urgent' ? '<span class="pill urgent">PAY NOW · due ' + esc(plan.due) + '</span>' : '<span class="pill">due ' + esc(plan.due) + '</span>') +
-      '</div>' + rows + '</div>';
-  }).join('');
-  $('planList').innerHTML = plans || '<div class="empty">Add a card with a balance to see its payment plan.</div>';
-}
-
-function renderCalendar(bal) {
-  var ref = parseDate(ui.calRef), y = ref.getFullYear(), m = ref.getMonth();
-  $('calLabel').textContent = ref.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-  var map = dueDatesInMonth(state.cards, y, m);
-  var startDow = (new Date(y, m, 1).getDay() + 6) % 7; // Monday start
-  var days = new Date(y, m + 1, 0).getDate();
-  var todayS = todayStr();
-  var html = ['<div class="cal-dow"><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span></div><div class="cal-grid">'];
-  var i, d;
-  for (i = 0; i < startDow; i++) html.push('<div class="cal-day empty"></div>');
-  for (d = 1; d <= days; d++) {
-    var ds = y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
-    var dues = map[d] || [];
-    var cls = 'cal-day' + (ds === todayS ? ' today' : '') + (dues.length ? ' has-due' : '') + (ui.calDay === d ? ' selected' : '');
-    var icons = dues.slice(0, 3).map(function (c) {
-      var bk = bankOf(c.bankId);
-      return '<img src="' + bk.icon + '" alt="' + esc(c.name) + '" title="' + esc(c.name) + '">';
-    }).join('');
-    if (dues.length > 3) icons += '<span class="cal-more">+' + (dues.length - 3) + '</span>';
-    html.push('<div class="' + cls + '" data-calday="' + d + '"><span class="cal-num">' + d + '</span><span class="cal-icons">' + icons + '</span></div>');
-  }
-  html.push('</div>');
-  $('calGrid').innerHTML = html.join('');
-
-  var detail = '';
-  if (ui.calDay && map[ui.calDay]) {
-    var monthName = ref.toLocaleDateString(undefined, { month: 'long' });
-    detail = '<h3 style="margin:0 0 8px;font-size:14px">Due ' + monthName + ' ' + ui.calDay + '</h3>' +
-      map[ui.calDay].map(function (c) {
-        var b = bal.cardBal[c.id] || 0;
-        var bk = bankOf(c.bankId);
-        return '<div class="item"><img class="card-ico" src="' + bk.icon + '" alt="' + esc(bk.name) + '">' +
-          '<div class="main"><div class="title">' + esc(c.name) + '</div>' +
-          '<div class="sub">Balance ' + money(b, entityCurrency(c)) + ' · APR ' + esc(String(c.apr)) + '%</div></div>' +
-          '<button class="btn small" data-calpay="' + c.id + '">Pay</button></div>';
-      }).join('');
-  }
-  $('calDetail').innerHTML = detail;
-
-  $('calGrid').querySelectorAll('[data-calday]').forEach(function (el) {
-    el.addEventListener('click', function () {
-      var day = parseInt(el.dataset.calday, 10);
-      ui.calDay = (ui.calDay === day) ? null : day;
-      renderCalendar(bal);
-    });
-  });
-  $('calDetail').querySelectorAll('[data-calpay]').forEach(function (btn) {
-    btn.addEventListener('click', function (e) { e.stopPropagation(); openTxModal(null, 'cardpayment', { cardId: btn.dataset.calpay }); });
-  });
-}
-
-function shiftCalMonth(dir) {
-  var d = parseDate(ui.calRef);
-  ui.calRef = fmtDate(new Date(d.getFullYear(), d.getMonth() + dir, 1));
-  ui.calDay = null;
-  render();
-}
-
-function renderAccounts(bal) {
-  $('accountList').innerHTML = state.accounts.map(function (a) {
-    return '<div class="item"><div class="main"><div class="title">' + esc(a.name) + '</div>' +
-      '<div class="sub">' + esc(entityCurrency(a)) + ' · Balance updates automatically from your entries</div></div>' +
-      '<div style="text-align:right"><div class="amt">' + money(bal.acctBal[a.id] || 0, entityCurrency(a)) + '</div>' +
-      '<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end">' +
-      '<button class="btn small" data-deposit="' + a.id + '">Deposit</button>' +
-      '<button class="btn small ghost" data-editacct="' + a.id + '">Edit</button></div></div></div>';
-  }).join('') || '<div class="empty">No accounts yet.</div>';
-  $('accountList').querySelectorAll('[data-deposit]').forEach(function (btn) {
-    btn.addEventListener('click', function (e) { e.stopPropagation(); openTxModal(null, 'income', { accountId: btn.dataset.deposit }); });
-  });
-  $('accountList').querySelectorAll('[data-editacct]').forEach(function (btn) {
-    btn.addEventListener('click', function (e) { e.stopPropagation(); openAccountModal(btn.dataset.editacct); });
-  });
-}
-
-function renderInvestments() {
-  var list = state.investments || [];
-  var codes = [];
-  list.forEach(function (inv) { var c = entityCurrency(inv); if (codes.indexOf(c) < 0) codes.push(c); });
-  if (!codes.length) codes = [state.settings.defaultCurrency || 'USD'];
-  var multi = codes.length > 1;
-  var summary = $('invSummary');
-  if (summary) {
-    summary.innerHTML = codes.map(function (code) {
-      var tv = investmentsTotal(state, code);
-      var ti = investmentsContributed(state, code);
-      var tg = round2(tv - ti);
-      return '<div class="cur-block">' + (multi ? '<div class="cur-head">' + esc(code) + ' · ' + esc(currencyOf(code).name) + '</div>' : '') +
-        '<div class="totals">' +
-        '<div class="total in"><span class="t-label">Value</span><span class="t-value">' + money(tv, code) + '</span></div>' +
-        '<div class="total"><span class="t-label">Invested</span><span class="t-value">' + money(ti, code) + '</span></div>' +
-        '<div class="total"><span class="t-label">Gain / loss</span><span class="t-value" style="color:' + (tg < 0 ? 'var(--danger)' : 'var(--accent-ink)') + '">' + (tg > 0 ? '+' : '') + money(tg, code) + '</span></div>' +
-        '</div></div>';
-    }).join('');
-  }
-  var listEl = $('investmentList'); if (!listEl) return;
-  listEl.innerHTML = list.map(function (inv) {
-    var cur = entityCurrency(inv);
-    var gain = investmentGain(inv);
-    var pct = inv.contributed > 0 ? Math.round(gain / inv.contributed * 1000) / 10 : null;
-    var gainHtml = '<span class="pill ' + (gain < 0 ? 'loss' : '') + '">' +
-      (gain > 0 ? '▲ +' : gain < 0 ? '▼ −' : '') + money(Math.abs(gain), cur) +
-      (pct != null && gain !== 0 ? ' (' + (pct > 0 ? '+' : '') + pct + '%)' : '') + '</span>';
-    return '<div class="item"><div class="main"><div class="title">' + esc(inv.name) + '</div>' +
-      '<div class="sub">' + esc(inv.type || 'Other') + ' · ' + esc(cur) + ' · invested ' + money(inv.contributed, cur) +
-      (inv.note ? ' · ' + esc(inv.note) : '') + '</div>' + gainHtml + '</div>' +
-      '<div style="text-align:right"><div class="amt pos">' + money(inv.currentValue, cur) + '</div>' +
-      '<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end">' +
-      '<button class="btn small ghost" data-editinv="' + inv.id + '">Edit</button></div></div></div>';
-  }).join('') || '<div class="empty">No investments yet. Add your first holding — its current value counts toward your total balance.</div>';
-  listEl.querySelectorAll('[data-editinv]').forEach(function (btn) {
-    btn.addEventListener('click', function (e) { e.stopPropagation(); openInvestmentModal(btn.dataset.editinv); });
-  });
-}
-
-function renderGoals(bal) {
-  $('goalList').innerHTML = state.goals.map(function (g) {
-    var saved = bal.goalSaved[g.id] || 0;
-    var pct = g.target > 0 ? Math.min(100, Math.round(saved / g.target * 100)) : 0;
-    return '<div class="item" style="display:block" data-goal="' + g.id + '"><div class="row-between"><div class="title">' + esc(g.name) + '</div>' +
-      '<div class="amt">' + money(saved, entityCurrency(g)) + ' <span class="muted-note">/ ' + money(g.target, entityCurrency(g)) + '</span></div></div>' +
-      '<div class="progress"><div style="width:' + pct + '%"></div></div>' +
-      '<div class="sub" style="margin-top:6px">Target ' + esc(g.targetDate) + ' · ' + pct + '%</div>' +
-      '<div style="margin-top:8px;display:flex;gap:6px;justify-content:flex-end">' +
-      '<button class="btn small" data-roadmap="' + g.id + '">Roadmap</button>' +
-      '<button class="btn small" data-contrib="' + g.id + '">Contribute</button>' +
-      '<button class="btn small ghost" data-editgoal="' + g.id + '">Edit</button></div></div>';
-  }).join('') || '<div class="empty">No goals yet.</div>';
-  var q = function (sel, fn) { $( 'goalList').querySelectorAll(sel).forEach(fn); };
-  q('[data-roadmap]', function (b) { b.addEventListener('click', function (e) { e.stopPropagation(); showRoadmap(b.dataset.roadmap, bal); }); });
-  q('[data-contrib]', function (b) { b.addEventListener('click', function (e) { e.stopPropagation(); openTxModal(null, 'saving', { goalId: b.dataset.contrib }); }); });
-  q('[data-editgoal]', function (b) { b.addEventListener('click', function (e) { e.stopPropagation(); openGoalModal(b.dataset.editgoal); }); });
-  if (ui.openGoal) showRoadmap(ui.openGoal, bal, true);
-}
-
-function showRoadmap(goalId, bal, keep) {
-  var g = state.goals.find(function (x) { return x.id === goalId; });
-  if (!g) return;
-  ui.openGoal = goalId;
-  var saved = (bal || recompute(state)).goalSaved[goalId] || 0;
-  var rm = savingsRoadmap(g, saved, todayStr());
-  $('roadmapTitle').textContent = 'Roadmap — ' + g.name;
-  var html = '';
-  if (rm.done) {
-    html = '<p>🎉 Goal reached! Saved ' + money(saved, entityCurrency(g)) + ' of ' + money(g.target, entityCurrency(g)) + '.</p>';
-  } else if (rm.overdue) {
-    html = '<p><strong>' + money(rm.remaining, entityCurrency(g)) + '</strong> still needed — the target date has passed. Pick a new date or adjust the target.</p>';
-  } else {
-    html = '<div class="kv"><span class="k">Remaining</span><span><strong>' + money(rm.remaining, entityCurrency(g)) + '</strong></span></div>' +
-      '<div class="kv"><span class="k">Days left</span><span>' + rm.daysLeft + '</span></div>' +
-      '<div class="kv"><span class="k">Per day</span><span>' + money(rm.perDay, entityCurrency(g)) + '</span></div>' +
-      '<div class="kv"><span class="k">Per week</span><span>' + money(rm.perWeek, entityCurrency(g)) + '</span></div>' +
-      '<div class="kv"><span class="k">Per month</span><span>' + money(rm.perMonth, entityCurrency(g)) + '</span></div>' +
-      '<h3 style="margin:14px 0 4px;font-size:14px">Milestones</h3>' +
-      '<table class="roadmap-table"><tr><th>By</th><th>Saved target</th></tr>' +
-      rm.milestones.map(function (m) { return '<tr><td>' + esc(m.date) + '</td><td>' + money(m.target, entityCurrency(g)) + '</td></tr>'; }).join('') + '</table>';
-  }
-  $('roadmapBody').innerHTML = html;
-  $('roadmapCard').classList.remove('hidden');
-  if (!keep) $('roadmapCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-function renderSettings() {
-  $('setLeadDays').value = String(state.settings.leadDays);
-  var dc = $('setDefaultCurrency');
-  if (dc) {
-    if (!dc.options.length) fillCurrencySelect(dc);
-    dc.value = state.settings.defaultCurrency || 'USD';
-  }
-  document.querySelectorAll('#themeSeg button').forEach(function (b) {
-    var on = b.dataset.themeOpt === state.settings.theme;
-    b.classList.toggle('on', on);
-    b.setAttribute('aria-checked', String(on));
-  });
-  var n = $('notifyState');
-  try {
-    n.textContent = (typeof Notification !== 'undefined' && Notification.permission === 'granted') ? 'Notifications on.' : '';
-  } catch (e) {}
-  renderDriveStatus();
-}
-
-/* ---------------- modals & forms ---------------- */
-function openModal(id) { $(id).classList.remove('hidden'); }
-function closeModals() { document.querySelectorAll('.modal').forEach(function (m) { m.classList.add('hidden'); }); }
-
-function fillCurrencySelect(sel) {
-  sel.innerHTML = CURRENCIES.map(function (c) {
-    return '<option value="' + c.code + '">' + c.code + ' — ' + esc(c.name) + '</option>';
-  }).join('');
-}
-function setCurrencySelect(id, value) {
-  var sel = $(id); if (!sel) return;
-  if (!sel.options.length) fillCurrencySelect(sel);
-  sel.value = isValidCurrency(value) ? value : 'USD';
-}
-
-function fillSelect(sel, items, placeholder) {
-  sel.innerHTML = (placeholder ? '<option value="" disabled selected>' + esc(placeholder) + '</option>' : '') +
-    items.map(function (it) { return '<option value="' + esc(it.id) + '">' + esc(it.name) + '</option>'; }).join('');
-}
-
-function updateTxCurrencyNote() {
-  var note = $('txCurrencyNote'); if (!note) return;
-  var kind = $('txKind').value;
-  var cur = null;
-  if (kind === 'income') cur = entityCurrency(state.accounts.find(function (a) { return a.id === $('txAccount').value; }));
-  else if (kind === 'expense') {
-    var m = $('txMethod').value || '';
-    cur = m.slice(0, 2) === 'c:' ? entityCurrency(state.cards.find(function (c) { return c.id === m.slice(2); }))
-      : entityCurrency(state.accounts.find(function (a) { return a.id === m.slice(2); }));
-  } else if (kind === 'cardpayment') cur = entityCurrency(state.cards.find(function (c) { return c.id === $('txCard').value; }));
-  else if (kind === 'saving') cur = entityCurrency(state.goals.find(function (g) { return g.id === $('txGoal').value; }));
-  var c = currencyOf(cur || state.settings.defaultCurrency || 'USD');
-  note.textContent = 'Amounts are in ' + c.code + ' (' + c.name + '). Currencies are kept separate — no conversion.';
-}
-
-function syncTxForm() {
-  var kind = $('txKind').value;
-  var show = function (id, on) { $(id).classList.toggle('hidden', !on); };
-  show('txCategoryWrap', kind === 'income' || kind === 'expense');
-  show('txAccountWrap', kind !== 'expense');
-  show('txMethodWrap', kind === 'expense');
-  show('txCardWrap', kind === 'cardpayment');
-  show('txGoalWrap', kind === 'saving');
-  $('txAccountWrap').querySelector('span').textContent = kind === 'income' ? 'To account' : 'From account';
-  var cat = $('txCategory');
-  var cats = kind === 'income' ? INCOME_CATS : EXPENSE_CATS;
-  cat.innerHTML = cats.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
-  if (kind === 'expense') {
-    var opts = state.accounts.map(function (a) { return { id: 'a:' + a.id, name: a.name + ' (bank, ' + entityCurrency(a) + ')' }; })
-      .concat(state.cards.map(function (c) { return { id: 'c:' + c.id, name: c.name + ' (card, ' + entityCurrency(c) + ')' }; }));
-    $('txMethod').innerHTML = opts.map(function (o) { return '<option value="' + esc(o.id) + '">' + esc(o.name) + '</option>'; }).join('') || '<option value="" disabled>Add an account or card first</option>';
-  }
-  updateTxCurrencyNote();
-}
-
-function openTxModal(id, presetKind, preset) {
-  preset = preset || {};
-  fillSelect($('txAccount'), state.accounts, state.accounts.length ? null : 'Add an account first');
-  fillSelect($('txCard'), state.cards, state.cards.length ? null : 'Add a card first');
-  fillSelect($('txGoal'), state.goals, state.goals.length ? null : 'Add a goal first');
-  var t = id ? state.transactions.find(function (x) { return x.id === id; }) : null;
-  $('txModalTitle').textContent = t ? 'Edit entry' : 'Add entry';
-  $('txId').value = t ? t.id : '';
-  $('txKind').value = t ? t.kind : (presetKind || 'expense');
-  $('txDate').value = t ? t.date : todayStr();
-  $('txAmount').value = t ? t.amount : '';
-  $('txNote').value = t ? (t.note || '') : '';
-  syncTxForm();
-  if (t) {
-    $('txCategory').value = t.category || '';
-    if (t.kind === 'income' || t.kind === 'cardpayment' || t.kind === 'saving') $('txAccount').value = t.accountId || '';
-    if (t.kind === 'expense') $('txMethod').value = (t.methodType === 'card' ? 'c:' : 'a:') + t.methodId;
-    if (t.kind === 'cardpayment') $('txCard').value = t.cardId || '';
-    if (t.kind === 'saving') $('txGoal').value = t.goalId || '';
-  } else {
-    if (preset.accountId) $('txAccount').value = preset.accountId;
-    if (preset.cardId) $('txCard').value = preset.cardId;
-    if (preset.goalId) $('txGoal').value = preset.goalId;
-  }
-  $('txDelete').classList.toggle('hidden', !t);
-  openModal('modalTx');
-}
-
-function readTxForm() {
-  var kind = $('txKind').value;
-  var amount = round2(parseFloat($('txAmount').value));
-  if (!(amount > 0)) throw new Error('Enter an amount greater than zero.');
-  var date = $('txDate').value || todayStr();
-  var base = { id: $('txId').value || uid(), kind: kind, date: date, amount: amount, note: $('txNote').value.trim() };
-  if (kind === 'income') {
-    if (!$('txAccount').value) throw new Error('Choose an account.');
-    base.accountId = $('txAccount').value; base.category = $('txCategory').value;
-  } else if (kind === 'expense') {
-    var m = $('txMethod').value || '';
-    if (!m) throw new Error('Choose what you paid with.');
-    base.methodType = m.slice(0, 2) === 'c:' ? 'card' : 'account';
-    base.methodId = m.slice(2);
-    base.category = $('txCategory').value;
-  } else if (kind === 'cardpayment') {
-    if (!$('txAccount').value || !$('txCard').value) throw new Error('Choose an account and a card.');
-    base.accountId = $('txAccount').value; base.cardId = $('txCard').value;
-    var accCur = entityCurrency(state.accounts.find(function (a) { return a.id === base.accountId; }));
-    var cardCur = entityCurrency(state.cards.find(function (c) { return c.id === base.cardId; }));
-    if (accCur !== cardCur) throw new Error('That account is ' + accCur + ' but the card is ' + cardCur + '. Currencies are kept separate — pay the card from a ' + cardCur + ' account.');
-  } else if (kind === 'saving') {
-    if (!$('txAccount').value || !$('txGoal').value) throw new Error('Choose an account and a goal.');
-    base.accountId = $('txAccount').value; base.goalId = $('txGoal').value;
-    var sAccCur = entityCurrency(state.accounts.find(function (a) { return a.id === base.accountId; }));
-    var goalCur = entityCurrency(state.goals.find(function (g) { return g.id === base.goalId; }));
-    if (sAccCur !== goalCur) throw new Error('That account is ' + sAccCur + ' but the goal is ' + goalCur + '. Currencies are kept separate — use a ' + goalCur + ' account.');
-  }
-  return base;
-}
-
-function openCardModal(id) {
-  var c = id ? state.cards.find(function (x) { return x.id === id; }) : null;
-  $('cardModalTitle').textContent = c ? 'Edit card' : 'Add card';
-  $('cardId').value = c ? c.id : '';
-  $('cardName').value = c ? c.name : '';
-  $('cardApr').value = c ? c.apr : '';
-  $('cardDueDay').value = c ? c.dueDay : '';
-  $('cardLimit').value = c && c.limit ? c.limit : '';
-  $('cardMinPay').value = c && c.minPayment ? c.minPayment : '';
-  $('cardBalance').value = c ? (c.openingBalance || 0) : 0;
-  setCurrencySelect('cardCurrency', c ? entityCurrency(c) : state.settings.defaultCurrency);
-  var sel = $('cardIssuer');
-  var seen = {}, order = [];
-  BANKS.forEach(function (b) { if (!seen[b.group]) { seen[b.group] = []; order.push(b.group); } seen[b.group].push(b); });
-  sel.innerHTML = order.map(function (g) {
-    return '<optgroup label="' + esc(g) + '">' + seen[g].map(function (b) {
-      return '<option value="' + b.id + '">' + esc(b.name) + '</option>';
-    }).join('') + '</optgroup>';
-  }).join('');
-  sel.value = (c && c.bankId) ? c.bankId : 'generic';
-  $('cardIssuerPreview').src = bankOf(sel.value).icon;
-  $('cardIssuerPreview').alt = bankOf(sel.value).name;
-  $('cardDelete').classList.toggle('hidden', !c);
-  openModal('modalCard');
-}
-
-function openAccountModal(id) {
-  var a = id ? state.accounts.find(function (x) { return x.id === id; }) : null;
-  $('acctModalTitle').textContent = a ? 'Edit account' : 'Add account';
-  $('acctId').value = a ? a.id : '';
-  $('acctName').value = a ? a.name : '';
-  $('acctBalance').value = a ? (a.openingBalance || 0) : 0;
-  setCurrencySelect('acctCurrency', a ? entityCurrency(a) : state.settings.defaultCurrency);
-  $('acctDelete').classList.toggle('hidden', !a);
-  openModal('modalAccount');
-}
-
-function openInvestmentModal(id) {
-  var inv = id ? (state.investments || []).find(function (x) { return x.id === id; }) : null;
-  $('invModalTitle').textContent = inv ? 'Edit investment' : 'Add investment';
-  $('invId').value = inv ? inv.id : '';
-  $('invName').value = inv ? inv.name : '';
-  $('invType').value = inv && INVESTMENT_TYPES.indexOf(inv.type) >= 0 ? inv.type : 'Other';
-  $('invContributed').value = inv ? (inv.contributed || 0) : 0;
-  $('invCurrentValue').value = inv ? (inv.currentValue || 0) : 0;
-  $('invNote').value = inv ? (inv.note || '') : '';
-  setCurrencySelect('invCurrency', inv ? entityCurrency(inv) : state.settings.defaultCurrency);
-  $('invDelete').classList.toggle('hidden', !inv);
-  openModal('modalInvestment');
-}
-
-function openGoalModal(id) {
-  var g = id ? state.goals.find(function (x) { return x.id === id; }) : null;
-  $('goalModalTitle').textContent = g ? 'Edit goal' : 'Add goal';
-  $('goalId').value = g ? g.id : '';
-  $('goalName').value = g ? g.name : '';
-  $('goalTarget').value = g ? g.target : '';
-  $('goalDate').value = g ? g.targetDate : '';
-  $('goalSaved').value = g ? (g.initialSaved || 0) : 0;
-  setCurrencySelect('goalCurrency', g ? entityCurrency(g) : state.settings.defaultCurrency);
-  $('goalDelete').classList.toggle('hidden', !g);
-  openModal('modalGoal');
-}
-
-function saveAndRender(msg, opts) {
-  if (!persist(state)) toast('Warning: browser storage unavailable — export a backup!');
-  render();
-  if (msg) toast(msg);
-  if (!(opts && opts.skipAutoBackup)) driveMaybeAutoBackup();
-}
-
-/* ---------------- Google Drive auth & operations (DOM only) ----------------
-   Sign-in uses Google Identity Services in redirect mode (ux_mode: 'redirect'),
-   which works in an installed iPhone PWA where popups do not come back to the
-   app. The token lives only in memory; the pending action survives the
-   redirect in localStorage because the page reloads. The passphrase is never
-   persisted — after a redirect the user re-enters it to finish the operation. */
-var driveAuth = { token: null, expiresAt: 0 };
-var driveSessionPassphrase = null; /* memory only; enables auto-backup until the tab closes */
-var driveBusy = false;
-var DRIVE_PENDING_KEY = 'finance-app-drive-pending';
-var DRIVE_NONCE_KEY = 'finance-app-drive-nonce';
-function driveGetPending() {
-  try { return localStorage.getItem(DRIVE_PENDING_KEY) || ''; } catch (e) { return ''; }
-}
-function driveSetPending(action) {
-  try { localStorage.setItem(DRIVE_PENDING_KEY, action || 'connect'); } catch (e) {}
-}
-function driveClearPending() {
-  try { localStorage.removeItem(DRIVE_PENDING_KEY); } catch (e) {}
-}
-function driveHasValidToken() {
-  return !!(driveAuth.token && Date.now() < driveAuth.expiresAt);
-}
-function driveClearHash() {
-  try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) {}
-}
-function driveBeginAuth(action) {
-  var field = $('driveClientId');
-  var typed = field ? field.value.trim() : '';
-  if (typed && typed !== state.settings.driveClientId) {
-    state.settings.driveClientId = typed;
-    state.settings.driveEmail = '';
-    driveAuth.token = null; driveAuth.expiresAt = 0;
-    persist(state);
-  }
-  var clientId = (state.settings.driveClientId || '').trim();
-  if (!clientId) { toast('Paste your Google OAuth client ID first.'); return; }
-  if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
-    toast('Google sign-in could not load — check your connection and reload.');
-    return;
-  }
-  var nonce = uid() + uid();
-  try { localStorage.setItem(DRIVE_NONCE_KEY, nonce); } catch (e) {}
-  driveSetPending(action || 'connect');
-  try {
-    var client = google.accounts.oauth2.initTokenClient({
-      client_id: clientId,
-      scope: DRIVE.scope,
-      ux_mode: 'redirect',
-      redirect_uri: window.location.origin + window.location.pathname,
-      state: nonce,
-      callback: function () { /* redirect mode delivers the token in the URL hash, not here */ }
-    });
-    client.requestAccessToken();
-  } catch (e) {
-    driveClearPending();
-    toast('Could not start Google sign-in: ' + driveErrorMessage(e));
-  }
-}
-function driveHandleAuthReturn() {
-  var hash = '';
-  try { hash = window.location.hash || ''; } catch (e) { return; }
-  if (!hash) return;
-  var params = parseFragment(hash);
-  if (params.error) {
-    driveClearPending();
-    driveClearHash();
-    toast('Google sign-in was declined.');
-    return;
-  }
-  if (!params.access_token) return;
-  var nonce = null;
-  try { nonce = localStorage.getItem(DRIVE_NONCE_KEY); } catch (e) {}
-  if (params.state && nonce && params.state !== nonce) {
-    driveClearPending();
-    driveClearHash();
-    toast('Sign-in response did not match — please try again.');
-    return;
-  }
-  driveAuth.token = params.access_token;
-  driveAuth.expiresAt = Date.now() + (parseInt(params.expires_in || '3600', 10) - 60) * 1000;
-  driveClearHash();
-  var pending = driveGetPending();
-  driveClearPending();
-  driveRefreshEmail();
-  if (pending === 'backup') toast('Connected to Google Drive — enter your passphrase and tap Back up now.');
-  else if (pending === 'restore') toast('Connected to Google Drive — enter your passphrase and tap Restore from Drive.');
-  else toast('Connected to Google Drive.');
-}
-function driveRefreshEmail() {
-  if (!driveHasValidToken()) return;
-  driveAbout(driveAuth.token).then(function (user) {
-    if (user && user.emailAddress) {
-      state.settings.driveEmail = user.emailAddress;
-      persist(state);
-      renderDriveStatus();
-    }
-  }).catch(function () { /* email is display-only; a failed lookup must not break backup */ });
-}
-function renderDriveStatus() {
-  var el = $('driveStatus'); if (!el) return;
-  var idField = $('driveClientId'); if (idField) idField.value = state.settings.driveClientId || '';
-  var autoBox = $('driveAutoBackup'); if (autoBox) autoBox.checked = !!state.settings.driveAutoBackup;
-  var parts = [];
-  if (!state.settings.driveClientId) parts.push('Add your OAuth client ID to connect.');
-  else if (!driveHasValidToken()) parts.push('Not connected.');
-  else {
-    parts.push('Connected' + (state.settings.driveEmail ? ' as ' + state.settings.driveEmail : '') + '.');
-    if (state.settings.driveLastBackupAt) {
-      var d = new Date(state.settings.driveLastBackupAt);
-      parts.push('Last backup ' + (isNaN(d.getTime()) ? state.settings.driveLastBackupAt : d.toLocaleString()) + '.');
-    }
-  }
-  if (state.settings.driveAutoBackup && !driveSessionPassphrase) {
-    parts.push('Auto-backup paused — enter your passphrase and back up once to resume.');
-  }
-  el.textContent = parts.join(' ');
-}
-async function driveBackupNow(passphrase, opts) {
-  opts = opts || {};
-  if (driveBusy) return false;
-  if (!driveHasValidToken()) {
-    if (!opts.silent) driveBeginAuth('backup');
-    return false;
-  }
-  var pass = passphrase || driveSessionPassphrase;
-  if (!pass) {
-    if (!opts.silent) toast('Enter your backup passphrase.');
-    return false;
-  }
-  driveBusy = true;
-  try {
-    var folderId = await driveEnsureFolder(driveAuth.token, undefined, state.settings.driveFolderId || '');
-    var existing = await driveFindFile(driveAuth.token, DRIVE.fileName);
-    var content = await encryptBackup(state, pass);
-    var fileId = await driveUploadBackup(driveAuth.token, folderId, existing ? existing.id : null, content);
-    state.settings.driveFolderId = folderId;
-    state.settings.driveFileId = fileId;
-    state.settings.driveLastBackupAt = new Date().toISOString();
-    if (state.settings.driveAutoBackup) driveSessionPassphrase = pass;
-    persist(state);
-    renderDriveStatus();
-    if (!opts.silent) toast('Backed up to Google Drive.');
-    return true;
-  } catch (e) {
-    if (!opts.silent) toast('Drive backup failed: ' + driveErrorMessage(e));
-    return false;
-  } finally { driveBusy = false; }
-}
-async function driveRestoreNow(passphrase) {
-  if (driveBusy) return;
-  if (!driveHasValidToken()) { driveBeginAuth('restore'); return; }
-  var pass = passphrase || driveSessionPassphrase;
-  if (!pass) { toast('Enter your backup passphrase.'); return; }
-  if (!confirm('Replace everything on this device with the Drive backup? This cannot be undone.')) return;
-  driveBusy = true;
-  try {
-    var file = await driveFindFile(driveAuth.token, DRIVE.fileName);
-    if (!file) { toast('No backup found in Google Drive yet.'); return; }
-    var content = await driveDownloadBackup(driveAuth.token, file.id);
-    var obj = await decryptBackup(content, pass);
-    state = normalizeState(obj);
-    ui.openGoal = null;
-    if (state.settings.driveAutoBackup) driveSessionPassphrase = pass;
-    saveAndRender('Restored from Google Drive.', { skipAutoBackup: true });
-    renderDriveStatus();
-  } catch (e) {
-    toast('Restore failed: ' + driveErrorMessage(e));
-  } finally { driveBusy = false; }
-}
-function driveDisconnect() {
-  driveAuth.token = null; driveAuth.expiresAt = 0;
-  driveSessionPassphrase = null;
-  driveClearPending();
-  state.settings.driveEmail = '';
-  persist(state);
-  renderDriveStatus();
-  toast('Disconnected from Google Drive. Your Drive backup file was left in place.');
-}
-function driveMaybeAutoBackup() {
-  if (!state.settings.driveAutoBackup) return;
-  if (!driveHasValidToken() || !driveSessionPassphrase) return;
-  driveBackupNow(driveSessionPassphrase, { silent: true });
-}
-
-/* ---------------- init (DOM only) ---------------- */
-function init() {
-  state = loadState();
-  setBalanceHidden(true); // balances open hidden; the eye toggle reveals them
-  applyTheme();
-  driveHandleAuthReturn();
-  try {
-    var mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
-    if (mq && mq.addEventListener) mq.addEventListener('change', function () {
-      if (state.settings.theme === 'system') { applyTheme(); render(); }
-    });
-  } catch (e) {}
-
-  document.querySelectorAll('#themeSeg button').forEach(function (b) {
-    b.addEventListener('click', function () {
-      state.settings.theme = b.dataset.themeOpt;
-      applyTheme(); saveAndRender('Appearance updated.');
-    });
-  });
-  var themeToggle = $('btnThemeToggle');
-  if (themeToggle) themeToggle.addEventListener('click', toggleTheme);
-  var balToggle = $('btnBalanceToggle');
-  if (balToggle) balToggle.addEventListener('click', toggleBalanceVisibility);
-  var bcEl = $('balanceCarousel');
-  function carouselStep() {
-    if (!bcEl) return 1;
-    var slide = bcEl.querySelector('.balance-slide');
-    return slide ? slide.offsetWidth + 12 : Math.max(1, bcEl.clientWidth);
-  }
-  function selectSlide(i, scroll) {
-    var balNow = recompute(state);
-    var codes = balanceCodes(balNow);
-    if (i < 0 || i >= codes.length) return;
-    ui.carouselIndex = i;
-    ui.selectedCurrency = codes[i];
-    document.querySelectorAll('#balanceCarousel .balance-slide').forEach(function (sEl, j) { sEl.classList.toggle('sel', j === i); });
-    document.querySelectorAll('#balanceDots .cdot').forEach(function (d, j) { d.classList.toggle('on', j === i); });
-    renderOverview(balNow);
-    if (scroll && bcEl && bcEl.scrollTo) { try { bcEl.scrollTo({ left: carouselStep() * i, behavior: 'smooth' }); } catch (e) {} }
-  }
-  if (bcEl) bcEl.addEventListener('scroll', function () {
-    var i = Math.max(0, Math.round(bcEl.scrollLeft / carouselStep()));
-    if (i !== ui.carouselIndex) selectSlide(i, false);
-  });
-  function openCountry(code) {
-    var balNow = recompute(state);
-    var codes = balanceCodes(balNow);
-    var i = codes.indexOf(code);
-    if (i < 0) return;
-    ui.carouselIndex = i;
-    ui.selectedCurrency = code;
-    ui.countryOpen = true;
-    render();
-    try { window.scrollTo(0, 0); } catch (e) {}
-  }
-  function closeCountry() {
-    ui.countryOpen = false;
-    render();
-    try { window.scrollTo(0, 0); } catch (e) {}
-    if (bcEl && bcEl.scrollTo) { try { bcEl.scrollTo({ left: carouselStep() * (ui.carouselIndex || 0) }); } catch (e) {} }
-  }
-  if (bcEl) bcEl.addEventListener('click', function (e) {
-    var eye = e.target && e.target.closest ? e.target.closest('[data-eye]') : null;
-    if (eye) { /* the card's own eye: toggle ONLY this country's visibility */
-      var code = eye.dataset.eye;
-      var nowVis = Object.prototype.hasOwnProperty.call(countryVis, code) ? countryVis[code] : !balanceHidden;
-      countryVis[code] = !nowVis;
-      render();
-      return;
-    }
-    var slide = e.target && e.target.closest ? e.target.closest('.balance-slide') : null;
-    if (!slide) return;
-    openCountry(slide.dataset.cur);
-  });
-  if (bcEl) bcEl.addEventListener('keydown', function (e) {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    if (e.target && e.target.closest && e.target.closest('[data-eye]')) return; /* the eye button handles its own keys */
-    var slide = e.target && e.target.closest ? e.target.closest('.balance-slide') : null;
-    if (!slide) return;
-    e.preventDefault();
-    openCountry(slide.dataset.cur);
-  });
-  var backBtn = $('btnCountryBack');
-  if (backBtn) backBtn.addEventListener('click', closeCountry);
-  var htx = $('homeTxList');
-  if (htx) htx.addEventListener('click', function (e) {
-    var item = e.target && e.target.closest ? e.target.closest('[data-tx]') : null;
-    if (item) openTxModal(item.dataset.tx);
-  });
-  var txAll = $('btnHomeTxAll');
-  if (txAll) txAll.addEventListener('click', function () { showTab('activity'); });
-  var dotsEl = $('balanceDots');
-  if (dotsEl) dotsEl.addEventListener('click', function (e) {
-    var btn = e.target && e.target.closest ? e.target.closest('[data-slide]') : null;
-    if (btn) selectSlide(parseInt(btn.dataset.slide, 10), true);
-  });
-  $('cardIssuer').addEventListener('change', function () {
-    var bk = bankOf($('cardIssuer').value);
-    $('cardIssuerPreview').src = bk.icon;
-    $('cardIssuerPreview').alt = bk.name;
-  });
-  $('calPrev').addEventListener('click', function () { shiftCalMonth(-1); });
-  $('calNext').addEventListener('click', function () { shiftCalMonth(1); });
-  $('calToday').addEventListener('click', function () { ui.calRef = todayStr(); ui.calDay = null; render(); });
-
-  document.querySelectorAll('.tabbar button').forEach(function (b) {
-    b.addEventListener('click', function () { showTab(b.dataset.tab); });
-  });
-  /* The ＋ button is context-aware: on the main screen it adds a country;
-     inside an opened country it adds details to that country; on every
-     other tab it adds a transaction, as before. */
-  var fabMode = 'country', fabCurrency = null;
-  function fillCountryPick() {
-    var selEl = $('addCountrySelect'); if (!selEl) return;
-    var present = balanceCodes(recompute(state));
-    selEl.innerHTML = CURRENCIES.map(function (c) {
-      return '<option value="' + c.code + '">' + c.flag + ' ' + esc(c.country) + ' \u2014 ' + c.code + '</option>';
-    }).join('');
-    var firstNew = CURRENCIES.map(function (c) { return c.code; }).filter(function (code) { return present.indexOf(code) < 0; })[0];
-    selEl.value = firstNew || state.settings.defaultCurrency || 'USD';
-  }
-  function openAddChooser() {
-    if (ui.countryOpen) {
-      fabMode = 'inside';
-      fabCurrency = selectedCurrency(recompute(state));
-      var c = currencyOf(fabCurrency);
-      $('addCountryTitle').textContent = 'Add to ' + c.country;
-      $('addCountryPick').classList.add('hidden');
-      $('addChoiceTx').classList.remove('hidden');
-      $('addChoiceCard').classList.remove('hidden');
-      $('addChoiceGoal').classList.remove('hidden');
-    } else {
-      fabMode = 'country'; fabCurrency = null;
-      $('addCountryTitle').textContent = 'Add a country';
-      $('addCountryPick').classList.remove('hidden');
-      /* A country is created by an account or an investment — the other
-         choices need the country to exist first, so they stay hidden. */
-      $('addChoiceTx').classList.add('hidden');
-      $('addChoiceCard').classList.add('hidden');
-      $('addChoiceGoal').classList.add('hidden');
-      fillCountryPick();
-    }
-    openModal('modalAddCountry');
-  }
-  function chosenCountry() { return fabMode === 'inside' ? fabCurrency : $('addCountrySelect').value; }
-  function wireChoice(id, fn) {
-    var b = $(id); if (!b) return;
-    b.addEventListener('click', function () { var code = chosenCountry(); closeModals(); fn(code); });
-  }
-  wireChoice('addChoiceTx', function () { openTxModal(null); });
-  wireChoice('addChoiceAccount', function (code) { openAccountModal(null); setCurrencySelect('acctCurrency', code); });
-  wireChoice('addChoiceCard', function (code) { openCardModal(null); setCurrencySelect('cardCurrency', code); });
-  wireChoice('addChoiceInvestment', function (code) { openInvestmentModal(null); setCurrencySelect('invCurrency', code); });
-  wireChoice('addChoiceGoal', function (code) { openGoalModal(null); setCurrencySelect('goalCurrency', code); });
-  $('btnAdd').addEventListener('click', function () {
-    if (ui.tab === 'overview') openAddChooser();
-    else openTxModal(null);
-  });
-  $('btnSettings').addEventListener('click', function () { showTab('settings'); });
-  $('activityFilter').addEventListener('change', function () { ui.activityFilter = $('activityFilter').value; renderActivity(); });
-  $('btnAddCard').addEventListener('click', function () { openCardModal(null); });
-  $('btnAddAccount').addEventListener('click', function () { openAccountModal(null); });
-  $('btnAddGoal').addEventListener('click', function () { openGoalModal(null); });
-  $('btnAddInvestment').addEventListener('click', function () { openInvestmentModal(null); });
-  document.querySelectorAll('[data-close]').forEach(function (b) { b.addEventListener('click', closeModals); });
-  document.querySelectorAll('.modal').forEach(function (m) {
-    m.addEventListener('click', function (e) { if (e.target === m) closeModals(); });
-  });
-  $('txKind').addEventListener('change', syncTxForm);
-
-  $('txForm').addEventListener('submit', function (e) {
-    e.preventDefault();
-    try {
-      var t = readTxForm();
-      var i = state.transactions.findIndex(function (x) { return x.id === t.id; });
-      if (i >= 0) state.transactions[i] = t; else state.transactions.push(t);
-      closeModals(); saveAndRender('Saved.');
-    } catch (err) { toast(err.message); }
-  });
-  $('txDelete').addEventListener('click', function () {
-    state.transactions = state.transactions.filter(function (x) { return x.id !== $('txId').value; });
-    closeModals(); saveAndRender('Deleted.');
-  });
-
-  $('cardForm').addEventListener('submit', function (e) {
-    e.preventDefault();
-    var dueDay = parseInt($('cardDueDay').value, 10);
-    var apr = parseFloat($('cardApr').value);
-    if (!(dueDay >= 1 && dueDay <= 28)) { toast('Due day must be 1–28.'); return; }
-    if (!(apr >= 0 && apr <= 60)) { toast('Enter a valid APR.'); return; }
-    var c = {
-      id: $('cardId').value || uid(), name: $('cardName').value.trim(), apr: round2(apr), dueDay: dueDay,
-      currency: isValidCurrency($('cardCurrency').value) ? $('cardCurrency').value : 'USD',
-      bankId: $('cardIssuer').value || 'generic',
-      limit: round2(parseFloat($('cardLimit').value) || 0) || null,
-      minPayment: round2(parseFloat($('cardMinPay').value) || 0) || null,
-      openingBalance: round2(parseFloat($('cardBalance').value) || 0)
-    };
-    if (!c.name) { toast('Name the card.'); return; }
-    var i = state.cards.findIndex(function (x) { return x.id === c.id; });
-    if (i >= 0) state.cards[i] = Object.assign(state.cards[i], c); else state.cards.push(c);
-    closeModals(); saveAndRender('Card saved.');
-  });
-  $('cardDelete').addEventListener('click', function () {
-    var id = $('cardId').value;
-    state.cards = state.cards.filter(function (x) { return x.id !== id; });
-    closeModals(); saveAndRender('Card deleted.');
-  });
-
-  $('acctForm').addEventListener('submit', function (e) {
-    e.preventDefault();
-    var a = { id: $('acctId').value || uid(), name: $('acctName').value.trim(),
-      currency: isValidCurrency($('acctCurrency').value) ? $('acctCurrency').value : 'USD',
-      openingBalance: round2(parseFloat($('acctBalance').value) || 0) };
-    if (!a.name) { toast('Name the account.'); return; }
-    var i = state.accounts.findIndex(function (x) { return x.id === a.id; });
-    if (i >= 0) state.accounts[i] = Object.assign(state.accounts[i], a); else state.accounts.push(a);
-    closeModals(); saveAndRender('Account saved.');
-  });
-  $('acctDelete').addEventListener('click', function () {
-    var id = $('acctId').value;
-    state.accounts = state.accounts.filter(function (x) { return x.id !== id; });
-    closeModals(); saveAndRender('Account deleted.');
-  });
-
-  $('invForm').addEventListener('submit', function (e) {
-    e.preventDefault();
-    var inv = { id: $('invId').value || uid(), name: $('invName').value.trim(),
-      currency: isValidCurrency($('invCurrency').value) ? $('invCurrency').value : 'USD',
-      type: INVESTMENT_TYPES.indexOf($('invType').value) >= 0 ? $('invType').value : 'Other',
-      contributed: round2(parseFloat($('invContributed').value) || 0),
-      currentValue: round2(parseFloat($('invCurrentValue').value) || 0),
-      note: $('invNote').value.trim() };
-    if (!inv.name) { toast('Name the investment.'); return; }
-    if (inv.contributed < 0 || inv.currentValue < 0) { toast('Values cannot be negative.'); return; }
-    if (!state.investments) state.investments = [];
-    var i = state.investments.findIndex(function (x) { return x.id === inv.id; });
-    if (i >= 0) state.investments[i] = Object.assign(state.investments[i], inv); else state.investments.push(inv);
-    closeModals(); saveAndRender('Investment saved — total balance updated.');
-  });
-  $('invDelete').addEventListener('click', function () {
-    var id = $('invId').value;
-    state.investments = (state.investments || []).filter(function (x) { return x.id !== id; });
-    closeModals(); saveAndRender('Investment deleted — total balance updated.');
-  });
-
-  $('goalForm').addEventListener('submit', function (e) {
-    e.preventDefault();
-    var g = { id: $('goalId').value || uid(), name: $('goalName').value.trim(),
-      currency: isValidCurrency($('goalCurrency').value) ? $('goalCurrency').value : 'USD',
-      target: round2(parseFloat($('goalTarget').value) || 0), targetDate: $('goalDate').value,
-      initialSaved: round2(parseFloat($('goalSaved').value) || 0) };
-    if (!g.name || !(g.target > 0) || !g.targetDate) { toast('Fill in name, target and date.'); return; }
-    var i = state.goals.findIndex(function (x) { return x.id === g.id; });
-    if (i >= 0) { state.goals[i] = Object.assign(state.goals[i], g); } else state.goals.push(g);
-    ui.openGoal = g.id;
-    closeModals(); saveAndRender('Goal saved.'); showTab('goals');
-  });
-  $('goalDelete').addEventListener('click', function () {
-    var id = $('goalId').value;
-    state.goals = state.goals.filter(function (x) { return x.id !== id; });
-    if (ui.openGoal === id) ui.openGoal = null;
-    closeModals(); saveAndRender('Goal deleted.');
-  });
-
-  ['txAccount', 'txMethod', 'txCard', 'txGoal'].forEach(function (id) {
-    $(id).addEventListener('change', updateTxCurrencyNote);
-  });
-  $('setDefaultCurrency').addEventListener('change', function () {
-    var v = $('setDefaultCurrency').value;
-    state.settings.defaultCurrency = isValidCurrency(v) ? v : 'USD';
-    saveAndRender('Default currency set to ' + state.settings.defaultCurrency + '.');
-  });
-  $('setLeadDays').addEventListener('change', function () {
-    state.settings.leadDays = parseInt($('setLeadDays').value, 10) === 2 ? 2 : 3;
-    saveAndRender('Payment plan updated.');
-  });
-
-  document.querySelectorAll('[data-csv]').forEach(function (b) {
-    b.addEventListener('click', function () {
-      var kind = b.dataset.csv, csv, name;
-      if (kind === 'transactions') { csv = txCSV(state); name = 'transactions.csv'; }
-      else if (kind === 'accounts') { csv = accountsCSV(state); name = 'accounts.csv'; }
-      else if (kind === 'cards') { csv = cardsCSV(state); name = 'cards.csv'; }
-      else if (kind === 'investments') { csv = investmentsCSV(state); name = 'investments.csv'; }
-      else { csv = goalsCSV(state); name = 'goals.csv'; }
-      download(name, csv, 'text/csv;charset=utf-8');
-      toast('Exported ' + name);
-    });
-  });
-
-  $('btnBackup').addEventListener('click', function () {
-    download('finance-backup-' + todayStr() + '.json', JSON.stringify(state, null, 2), 'application/json');
-    toast('Backup downloaded.');
-  });
-  $('restoreFile').addEventListener('change', function () {
-    var f = $('restoreFile').files[0]; if (!f) return;
-    var r = new FileReader();
-    r.onload = function () {
-      try {
-        var obj = JSON.parse(r.result);
-        var err = validateBackup(obj);
-        if (err) { toast(err); return; }
-        state = normalizeState(obj); ui.openGoal = null;
-        saveAndRender('Backup restored.');
-      } catch (e) { toast('Could not read that file.'); }
-    };
-    r.readAsText(f);
-    $('restoreFile').value = '';
-  });
-  $('btnWipe').addEventListener('click', function () {
-    if (confirm('Erase ALL local data? This cannot be undone. Export a backup first.')) {
-      state = blankState(); ui.openGoal = null;
-      saveAndRender('All data erased.');
-    }
-  });
-
-  $('driveClientId').addEventListener('change', function () {
-    var v = $('driveClientId').value.trim();
-    if (v !== state.settings.driveClientId) {
-      state.settings.driveClientId = v;
-      state.settings.driveEmail = '';
-      driveAuth.token = null; driveAuth.expiresAt = 0;
-      persist(state); renderDriveStatus();
-    }
-  });
-  $('driveAutoBackup').addEventListener('change', function () {
-    var on = $('driveAutoBackup').checked;
-    if (on && !driveSessionPassphrase && !$('drivePassphrase').value) {
-      $('driveAutoBackup').checked = false;
-      toast('Enter your backup passphrase first — auto-backup keeps it in memory only until you close the app.');
-      renderDriveStatus();
-      return;
-    }
-    state.settings.driveAutoBackup = on;
-    if (!on) driveSessionPassphrase = null;
-    else if ($('drivePassphrase').value) driveSessionPassphrase = $('drivePassphrase').value;
-    persist(state); renderDriveStatus();
-  });
-  $('btnDriveConnect').addEventListener('click', function () { driveBeginAuth('connect'); });
-  $('btnDriveBackup').addEventListener('click', function () { driveBackupNow($('drivePassphrase').value); });
-  $('btnDriveRestore').addEventListener('click', function () { driveRestoreNow($('drivePassphrase').value); });
-  $('btnDriveDisconnect').addEventListener('click', function () { driveDisconnect(); });
-
-  $('btnNotify').addEventListener('click', function () {
-    if (typeof Notification === 'undefined') { toast('Notifications not supported here.'); return; }
-    Notification.requestPermission().then(function (p) {
-      renderSettings();
-      toast(p === 'granted' ? 'Notifications on.' : 'Notifications not granted.');
-    });
-  });
-
-  // local reminders on every open
-  var rems = dueReminders(state, todayStr());
-  var urgent = rems.filter(function (r) { return r.urgent; });
-  if (urgent.length) notifyUser('MintNomad', urgent[0].text);
-
-  render();
-}
-
-/* expose pure logic for tests */
-if (typeof window !== 'undefined') {
-  window.FinanceApp = {
-    blankState: blankState, loadState: loadState, persist: persist,
-    recompute: recompute, periodRange: periodRange, summarize: summarize,
-    nextDueDate: nextDueDate, cardPlan: cardPlan, savingsRoadmap: savingsRoadmap,
-    dueReminders: dueReminders, validateBackup: validateBackup,
-    csvCell: csvCell, toCSV: toCSV, txCSV: txCSV, accountsCSV: accountsCSV,
-    cardsCSV: cardsCSV, goalsCSV: goalsCSV, investmentsCSV: investmentsCSV,
-    investmentsTotal: investmentsTotal, investmentsContributed: investmentsContributed,
-    investmentGain: investmentGain, accountsTotal: accountsTotal, totalBalance: totalBalance,
-    INVESTMENT_TYPES: INVESTMENT_TYPES,
-    CURRENCIES: CURRENCIES, currencyOf: currencyOf, isValidCurrency: isValidCurrency,
-    entityCurrency: entityCurrency, txCurrency: txCurrency, totalsByCurrency: totalsByCurrency,
-    currenciesInUse: currenciesInUse, summarizeByCurrency: summarizeByCurrency,
-    setBalanceHidden: setBalanceHidden, isBalanceHidden: isBalanceHidden,
-    money: money, parseDate: parseDate, fmtDate: fmtDate, addDays: addDays,
-    addDaysStr: addDaysStr, round2: round2, uid: uid, resolveTheme: resolveTheme,
-    BANKS: BANKS, bankOf: bankOf, dueDatesInMonth: dueDatesInMonth,
-    normalizeState: normalizeState,
-    DRIVE: DRIVE, encryptBackup: encryptBackup, decryptBackup: decryptBackup,
-    parseFragment: parseFragment, driveEscapeQuery: driveEscapeQuery,
-    driveFindFile: driveFindFile, driveGetFile: driveGetFile,
-    driveCreateFolder: driveCreateFolder, driveEnsureFolder: driveEnsureFolder,
-    driveUploadBackup: driveUploadBackup, driveDownloadBackup: driveDownloadBackup,
-    driveAbout: driveAbout, driveErrorMessage: driveErrorMessage
-  };
-  if (document.addEventListener) {
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-    else init();
-  }
-}
-})();
+// ---- Dish Guide logic ----
+const GUIDE_KEY='fridge-chef-guides-v1';let aiGuides=[];
+try{const g=JSON.parse(localStorage.getItem(GUIDE_KEY)||'[]');if(Array.isArray(g))aiGuides=g.slice(0,10)}catch{}
+function allGuides(){return [...GUIDE_LIB,...aiGuides]}
+function normDish(s){return String(s).toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim()}
+function findGuide(q){const n=normDish(q);if(!n)return null;const all=allGuides();
+ for(const d of all)if(normDish(d.name)===n)return d;
+ for(const d of all)if((d.aliases||[]).some(a=>normDish(a)===n))return d;
+ let best=null,bestScore=0;
+ for(const d of all){for(const nm of [d.name,...(d.aliases||[])].map(normDish)){if(n.length>=4&&(nm.includes(n)||n.includes(nm)))return d;const qt=new Set(n.split(' '));const hit=nm.split(' ').filter(t=>qt.has(t)).length;const score=hit/Math.max(nm.split(' ').length,1);if(score>bestScore){bestScore=score;best=d}}}
+ return bestScore>=0.6?best:null}
+function guideDietOK(d){return valid({diet:d.diet,ingredients:d.ingredients.map(i=>i[1])})}
+function renderGuideChips(){$('guideChips').innerHTML=GUIDE_LIB.map(d=>`<button type="button" class="pill" data-guide="${escapeHTML(d.name)}">${escapeHTML(d.name)}</button>`).join('');$('guideRecent').innerHTML=aiGuides.length?`<span class="hint" style="width:100%">Your AI guides:</span>`+aiGuides.map(d=>`<button type="button" class="pill" data-guide="${escapeHTML(d.name)}">✨ ${escapeHTML(d.name)}</button>`).join(''):''}
+function renderGuide(d,source){const warn=!guideDietOK(d);$('guideResult').innerHTML=`<div class="panel guide-card"><div class="section-heading"><h2>🍽️ ${escapeHTML(d.name)}</h2><span class="tag">${source==='ai'?'✨ AI guide':'📚 Offline library'}</span></div><div class="meta" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"><span class="tag">${escapeHTML(d.cuisine)}</span><span class="tag">⏱ ${d.time} min</span><span class="tag">🍽 Serves ${d.servings}</span><span class="tag">${escapeHTML(d.level)}</span></div>${warn?'<p class="warn">Heads up: this dish does not match your current diet filter — showing the classic version.</p>':''}<h3>Gather your ingredients</h3><ul class="gather">${d.ingredients.map(([qty,item])=>`<li><input type="checkbox" aria-label="Gathered ${escapeHTML(item)}"><span>${escapeHTML(qty)} ${escapeHTML(item)} ${pantryHas(item)?'✓ in your fridge':''}</span></li>`).join('')}</ul><h3>Step by step</h3><ol class="steps-list">${d.steps.map(s=>`<li>${escapeHTML(s)}</li>`).join('')}</ol><button class="primary wide" id="guideCookBtn">▶ Cook mode — one step at a time</button><button class="secondary wide" id="guideShopBtn">Add missing ingredients to shopping list</button></div>`;
+$('guideResult').querySelectorAll('.gather input').forEach(cb=>cb.addEventListener('change',()=>cb.closest('li').classList.toggle('done',cb.checked)));
+$('guideShopBtn').addEventListener('click',()=>{d.ingredients.filter(([,item])=>!pantryHas(item)).forEach(([,item])=>shoppingAdd(item));persist();renderShopping();toast('Missing ingredients added to shopping list')});
+$('guideCookBtn').addEventListener('click',()=>startCook(d.name,[`Gather everything: ${d.ingredients.map(([q,i])=>`${q} ${i}`).join(', ')}.`,...d.steps],null));
+$('guideResult').scrollIntoView({behavior:'smooth',block:'start'})}
+function parseIng(s){const m=String(s).match(/^([\d\s\/\.\-]+\s*(?:g|kg|ml|l|cups?|tbsp|tsp|tablespoons?|teaspoons?|pcs|pieces?|cloves?|cans?)?)\s+(.+)$/i);return m?[m[1].trim(),m[2].trim()]:['',String(s).trim()]}
+function renderGuideNotFound(q){$('guideResult').innerHTML=`<div class="panel"><h2>Not in the offline library (yet)</h2><p class="muted">“${escapeHTML(q)}” isn't one of the ${GUIDE_LIB.length} built-in guides. If you're online, AI can write a full step-by-step guide for it.</p><button class="primary wide" id="guideAskAI">✨ Ask AI for “${escapeHTML(q)}”</button><p class="hint" id="guideAIStatus" role="status" aria-live="polite"></p></div>`;$('guideAskAI').addEventListener('click',()=>fetchGuideAI(q))}
+async function fetchGuideAI(q){const st=$('guideAIStatus');const btn=$('guideAskAI');
+ if(!navigator.onLine){st.textContent='You are offline — AI guides need internet. The built-in library above works anytime.';return}
+ btn.disabled=true;st.textContent='Asking AI to write your guide…';
+ try{const res=await fetch('/api/guide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dish:q,diet:state.diet,avoid:state.avoid}),cache:'no-store'});
+  if(res.status===404||res.status===503)throw Error('not-configured');
+  if(!res.ok)throw Error('AI unavailable');
+  const body=await res.json();const g=body.guide;
+  if(!g||typeof g.title!=='string'||!Array.isArray(g.ingredients)||!Array.isArray(g.steps)||g.steps.length<2)throw Error('Invalid guide received');
+  const dish={name:g.title,aliases:[q],cuisine:String(g.cuisine||'AI pick'),time:Number(g.time)||30,servings:Number(g.servings)||2,level:String(g.level||'Medium'),diet:'any',ingredients:g.ingredients.map(parseIng),steps:g.steps.map(String)};
+  if(!aiAllowed({ingredients:dish.ingredients.map(i=>i[1])})){st.textContent='The AI guide did not pass your diet/avoid filters, so it was not saved. Try a different dish name.';btn.disabled=false;return}
+  aiGuides=[dish,...aiGuides.filter(x=>normDish(x.name)!==normDish(dish.name))].slice(0,10);try{localStorage.setItem(GUIDE_KEY,JSON.stringify(aiGuides))}catch{}
+  renderGuideChips();renderGuide(dish,'ai');toast('AI guide saved for offline viewing');
+ }catch(e){st.textContent=e.message==='not-configured'?'The AI guide service is not switched on for this app yet (the api/guide file has not been deployed). The offline library still works.':'Could not get an AI guide right now. Check your connection and try again.';btn.disabled=false}}
+$('guideForm').addEventListener('submit',e=>{e.preventDefault();const q=$('guideInput').value.trim();if(!q)return;const d=findGuide(q);if(d)renderGuide(d,aiGuides.includes(d)?'ai':'library');else renderGuideNotFound(q)});
+function guideChipClick(e){const b=e.target.closest('[data-guide]');if(!b)return;const d=findGuide(b.dataset.guide);if(d){$('guideInput').value=d.name;renderGuide(d,aiGuides.includes(d)?'ai':'library')}}
+$('guideChips').addEventListener('click',guideChipClick);
+$('guideRecent').addEventListener('click',guideChipClick);
+renderGuideChips();
