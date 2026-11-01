@@ -1,5 +1,5 @@
 /* MintNomad service worker — offline-first app shell cache. */
-var CACHE = 'finance-app-v22';
+var CACHE = 'finance-app-v23';
 var ASSETS = [
   './', './index.html', './styles.css', './card-designs.js', './app.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',

@@ -45,8 +45,16 @@ function entityCurrency(entity) {
   return (entity && isValidCurrency(entity.currency)) ? entity.currency : 'USD';
 }
 var balanceHidden = false;
-var homeReveal = false; /* true only while renderOverview draws an OPENED country:
-                           its detail values show even when balances are hidden */
+var countryVis = {}; /* per-country visibility overrides, set by each country
+                        card's own eye toggle: code -> true show / false hide;
+                        absent = follow the global toggle. Session-only. */
+var revealCurrency = null; /* set only while renderOverview draws an OPENED
+                              country: that one currency shows there */
+function moneyVisible(code) {
+  if (revealCurrency && code === revealCurrency) return true;
+  if (Object.prototype.hasOwnProperty.call(countryVis, code)) return countryVis[code];
+  return !balanceHidden;
+}
 function setBalanceHidden(v) { balanceHidden = !!v; }
 function isBalanceHidden() { return balanceHidden; }
 /* Digit grouping follows each currency's home convention:
@@ -62,8 +70,9 @@ function groupIndian(intStr) {
   return head.replace(/\B(?=(\d{2})+(?!\d))/g, ',') + ',' + tail;
 }
 function money(n, cur) {
-  var c = currencyOf(cur || 'USD');
-  if (balanceHidden && !homeReveal) return c.symbol + '\u2022\u2022\u2022\u2022\u2022\u2022';
+  var code = isValidCurrency(cur) ? cur : 'USD';
+  var c = currencyOf(code);
+  if (!moneyVisible(code)) return c.symbol + '\u2022\u2022\u2022\u2022\u2022\u2022';
   n = +n || 0;
   var sign = n < 0 ? '-' : '';
   var fixed = Math.abs(n).toFixed(c.decimals);
@@ -824,6 +833,7 @@ function updateBalanceToggle() {
 }
 function toggleBalanceVisibility() {
   setBalanceHidden(!balanceHidden);
+  countryVis = {}; /* the header eye is the master switch: it resets every per-country override */
   render();
 }
 
@@ -852,10 +862,12 @@ function renderBalanceCarousel(bal) {
   wrap.innerHTML = codes.map(function (code, idx) {
     var t = byCur[code] || { accounts: 0, investments: 0, total: 0 };
     var c = currencyOf(code);
+    var vis = Object.prototype.hasOwnProperty.call(countryVis, code) ? countryVis[code] : !balanceHidden;
     var nAcct = state.accounts.filter(function (a) { return entityCurrency(a) === code; }).length;
     var nInv = (state.investments || []).filter(function (inv) { return entityCurrency(inv) === code; }).length;
     return '<div class="balance-slide g' + (idx % 6) + (code === sel ? ' sel' : '') + '" data-cur="' + esc(code) + '" role="button" tabindex="0" aria-label="Open ' + esc(c.country) + '">' +
-      '<div class="bs-top"><span class="bs-flag">' + c.flag + '</span><span class="bs-country">' + esc(c.country) + '</span><span class="bs-code">' + esc(code) + '</span></div>' +
+      '<div class="bs-top"><span class="bs-flag">' + c.flag + '</span><span class="bs-country">' + esc(c.country) + '</span><span class="bs-code">' + esc(code) + '</span>' +
+      '<button class="bs-eye" data-eye="' + esc(code) + '" aria-label="' + (vis ? 'Hide' : 'Show') + ' ' + esc(c.country) + ' balance" aria-pressed="' + String(vis) + '" title="' + (vis ? 'Hide balance' : 'Show balance') + '">' + (vis ? '\uD83D\uDE48' : '\uD83D\uDC41') + '</button></div>' +
       '<div><div class="bs-label">Total balance</div>' +
       '<div class="bs-value">' + money(t.total, code) + '</div>' +
       '<div class="bs-split">Bank accounts <strong>' + money(t.accounts, code) + '</strong> \u00B7 Investments <strong>' + money(t.investments, code) + '</strong></div>' +
@@ -932,8 +944,8 @@ function render() {
    the SELECTED country only — its transaction history, its spending
    chart and its upcoming checklist. Currencies are never mixed here. */
 function renderOverview(bal) {
-  homeReveal = !!ui.countryOpen; /* an opened country shows its values */
   var sel = selectedCurrency(bal);
+  revealCurrency = ui.countryOpen ? sel : null; /* an opened country shows its values */
 
   /* Spending figures for the chart below are the current month's. */
   var s = summarizeByCurrency(state, 'monthly', todayStr());
@@ -1001,7 +1013,7 @@ function renderOverview(bal) {
     else if (!rm.overdue) pace.push('<div class="item"><div class="main"><div class="title">' + esc(g.name) + '</div><div class="sub">' + money(rm.perDay, entityCurrency(g)) + '/day · ' + rm.daysLeft + ' days left</div></div><div class="amt">' + money(rm.remaining, entityCurrency(g)) + ' to go</div></div>');
   });
   $('savingsPace').innerHTML = pace.length ? pace.join('') : '<div class="empty">No savings goals yet.</div>';
-  homeReveal = false;
+  revealCurrency = null;
 }
 
 function txLine(t) {
@@ -1676,12 +1688,21 @@ function init() {
     if (bcEl && bcEl.scrollTo) { try { bcEl.scrollTo({ left: carouselStep() * (ui.carouselIndex || 0) }); } catch (e) {} }
   }
   if (bcEl) bcEl.addEventListener('click', function (e) {
+    var eye = e.target && e.target.closest ? e.target.closest('[data-eye]') : null;
+    if (eye) { /* the card's own eye: toggle ONLY this country's visibility */
+      var code = eye.dataset.eye;
+      var nowVis = Object.prototype.hasOwnProperty.call(countryVis, code) ? countryVis[code] : !balanceHidden;
+      countryVis[code] = !nowVis;
+      render();
+      return;
+    }
     var slide = e.target && e.target.closest ? e.target.closest('.balance-slide') : null;
     if (!slide) return;
     openCountry(slide.dataset.cur);
   });
   if (bcEl) bcEl.addEventListener('keydown', function (e) {
     if (e.key !== 'Enter' && e.key !== ' ') return;
+    if (e.target && e.target.closest && e.target.closest('[data-eye]')) return; /* the eye button handles its own keys */
     var slide = e.target && e.target.closest ? e.target.closest('.balance-slide') : null;
     if (!slide) return;
     e.preventDefault();
