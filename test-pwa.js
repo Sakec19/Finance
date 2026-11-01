@@ -201,6 +201,151 @@ t('theme: default is system; loadState keeps only valid themes', () => {
   assert.strictEqual(F.loadState().settings.theme, 'system');
 });
 
+t('investments: blank state + totals + gain', () => {
+  const st = blank();
+  assert.deepStrictEqual(st.investments, []);
+  assert.strictEqual(F.investmentsTotal(st), 0);
+  assert.strictEqual(F.totalBalance(st), 0);
+  st.accounts.push({ id: 'a1', name: 'Checking', openingBalance: 1000 });
+  st.investments.push(
+    { id: 'i1', name: 'VOO', type: 'ETF', contributed: 500, currentValue: 620, note: '' },
+    { id: 'i2', name: 'BTC', type: 'Crypto', contributed: 200, currentValue: 150, note: '' },
+  );
+  assert.strictEqual(F.investmentsTotal(st), 770);
+  assert.strictEqual(F.investmentsContributed(st), 700);
+  assert.strictEqual(F.investmentGain(st.investments[0]), 120);
+  assert.strictEqual(F.investmentGain(st.investments[1]), -50);
+  // total balance = bank accounts + investments (card debt NOT subtracted)
+  st.cards.push({ id: 'c1', name: 'Visa', apr: 20, dueDay: 15, openingBalance: 300 });
+  assert.strictEqual(F.accountsTotal(st), 1000);
+  assert.strictEqual(F.totalBalance(st), 1770);
+});
+
+t('investments: normalizeState loads, sanitizes, and old backups default to []', () => {
+  const withInv = F.normalizeState({ transactions: [], accounts: [], cards: [], goals: [],
+    investments: [{ id: 'i1', name: 'VOO', type: 'ETF', contributed: '500', currentValue: 620.456, note: 7 },
+      { id: 'i2', name: 'Mystery', type: 'Bogus', contributed: -1, currentValue: 10 },
+      { name: '' }, null, 'junk'] });
+  assert.strictEqual(withInv.investments.length, 2);
+  assert.strictEqual(withInv.investments[0].contributed, 500);
+  assert.strictEqual(withInv.investments[0].currentValue, 620.46);
+  assert.strictEqual(withInv.investments[1].type, 'Other');
+  const old = F.normalizeState({ transactions: [], accounts: [], cards: [], goals: [] });
+  assert.deepStrictEqual(old.investments, []);
+  assert.strictEqual(F.validateBackup({ transactions: [], accounts: [], cards: [], goals: [] }), null,
+    'pre-Investments backups still validate');
+});
+
+t('investments: CSV export', () => {
+  const st = blank();
+  st.investments.push({ id: 'i1', name: 'VOO, "core"', type: 'ETF', contributed: 500, currentValue: 620, note: ' Roth ' });
+  const out = F.investmentsCSV(st);
+  assert.ok(out.charCodeAt(0) === 0xFEFF && out.includes('\r\n'));
+  assert.ok(out.includes('current_value') && out.includes('gain_loss'));
+  assert.ok(out.includes('620.00') && out.includes('120.00'));
+  assert.ok(out.includes('"VOO, ""core"""'), 'name quoted');
+});
+
+t('currency: money formatting per currency', () => {
+  assert.strictEqual(F.money(1234.5), '$1,234.50'); // default USD, unchanged
+  assert.strictEqual(F.money(1234.5, 'USD'), '$1,234.50');
+  assert.strictEqual(F.money(85000, 'INR'), '₹85,000.00');
+  assert.strictEqual(F.money(1200, 'JPY'), '¥1,200'); // zero decimals
+  assert.strictEqual(F.money(-50.5, 'EUR'), '-€50.50');
+  assert.strictEqual(F.money(10, 'XXX'), '$10.00'); // unknown falls back to USD
+  assert.ok(F.isValidCurrency('INR') && !F.isValidCurrency('XXX'));
+  assert.strictEqual(F.currencyOf('GBP').symbol, '£');
+});
+
+t('currency: legacy data defaults to USD, invalid codes sanitized', () => {
+  const st = F.normalizeState({ transactions: [], cards: [], goals: [],
+    accounts: [{ id: 'a1', name: 'Old' }, { id: 'a2', name: 'India', currency: 'INR' }, { id: 'a3', name: 'Bad', currency: 'BTC' }],
+    investments: [{ id: 'i1', name: 'FD', type: 'Other', currency: 'INR', contributed: 100, currentValue: 110 }],
+    settings: { defaultCurrency: 'INR' } });
+  assert.strictEqual(st.accounts[0].currency, 'USD');
+  assert.strictEqual(st.accounts[1].currency, 'INR');
+  assert.strictEqual(st.accounts[2].currency, 'USD');
+  assert.strictEqual(st.investments[0].currency, 'INR');
+  assert.strictEqual(st.settings.defaultCurrency, 'INR');
+  assert.strictEqual(F.normalizeState({ settings: { defaultCurrency: 'BTC' } }).settings.defaultCurrency, 'USD');
+  assert.strictEqual(F.blankState().settings.defaultCurrency, 'USD');
+});
+
+t('currency: totals stay separate per currency', () => {
+  const st = blank();
+  st.accounts.push(
+    { id: 'a1', name: 'US Checking', currency: 'USD', openingBalance: 1000 },
+    { id: 'a2', name: 'India Savings', currency: 'INR', openingBalance: 50000 });
+  st.investments.push(
+    { id: 'i1', name: 'VOO', type: 'ETF', currency: 'USD', contributed: 500, currentValue: 770 },
+    { id: 'i2', name: 'FD', type: 'Bonds', currency: 'INR', contributed: 9000, currentValue: 10000 });
+  const by = F.totalsByCurrency(st);
+  assert.strictEqual(by.USD.accounts, 1000);
+  assert.strictEqual(by.USD.investments, 770);
+  assert.strictEqual(by.USD.total, 1770);
+  assert.strictEqual(by.INR.accounts, 50000);
+  assert.strictEqual(by.INR.investments, 10000);
+  assert.strictEqual(by.INR.total, 60000);
+  assert.strictEqual(F.totalBalance(st, null, 'USD'), 1770);
+  assert.strictEqual(F.totalBalance(st, null, 'INR'), 60000);
+  assert.strictEqual(F.investmentsTotal(st, 'INR'), 10000);
+  assert.deepStrictEqual(F.currenciesInUse(st), ['USD', 'INR']);
+});
+
+t('currency: txCurrency resolution + summarizeByCurrency separation', () => {
+  const st = blank();
+  st.accounts.push(
+    { id: 'a1', name: 'US', currency: 'USD', openingBalance: 0 },
+    { id: 'a2', name: 'IN', currency: 'INR', openingBalance: 0 });
+  st.cards.push({ id: 'c1', name: 'IN Card', currency: 'INR', apr: 20, dueDay: 15, openingBalance: 0 });
+  st.transactions.push(
+    { id: 't1', kind: 'income', date: '2026-10-05', amount: 1000, accountId: 'a1', category: 'Paycheck' },
+    { id: 't2', kind: 'income', date: '2026-10-05', amount: 80000, accountId: 'a2', category: 'Paycheck' },
+    { id: 't3', kind: 'expense', date: '2026-10-06', amount: 500, methodType: 'card', methodId: 'c1', category: 'Groceries' },
+    { id: 't4', kind: 'expense', date: '2026-10-06', amount: 50, methodType: 'account', methodId: 'a1', category: 'Dining' });
+  assert.strictEqual(F.txCurrency(st, st.transactions[0]), 'USD');
+  assert.strictEqual(F.txCurrency(st, st.transactions[1]), 'INR');
+  assert.strictEqual(F.txCurrency(st, st.transactions[2]), 'INR');
+  const s = F.summarizeByCurrency(st, 'monthly', '2026-10-11');
+  assert.strictEqual(s.currencies.USD.inn, 1000);
+  assert.strictEqual(s.currencies.USD.out, 50);
+  assert.strictEqual(s.currencies.USD.net, 950);
+  assert.strictEqual(s.currencies.INR.inn, 80000);
+  assert.strictEqual(s.currencies.INR.out, 500);
+  assert.deepStrictEqual(s.currencies.INR.byCat, { Groceries: 500 });
+  assert.ok(F.txCSV(st).includes('currency'));
+  assert.ok(F.accountsCSV(st).includes('INR'));
+  assert.ok(F.investmentsCSV(st).includes('currency'));
+});
+
+t('privacy: balances mask until revealed', () => {
+  assert.strictEqual(F.isBalanceHidden(), false);
+  assert.strictEqual(F.money(1234.5, 'USD'), '$1,234.50');
+  F.setBalanceHidden(true);
+  assert.strictEqual(F.isBalanceHidden(), true);
+  assert.strictEqual(F.money(1234.5, 'USD'), '$••••••');
+  assert.strictEqual(F.money(-999, 'INR'), '₹••••••'); // sign never leaks either
+  assert.strictEqual(F.money(0, 'JPY'), '¥••••••');
+  F.setBalanceHidden(false);
+  assert.strictEqual(F.money(1234.5, 'USD'), '$1,234.50');
+});
+
+t('currency: every currency has a country and flag for the carousel', () => {
+  assert.strictEqual(F.CURRENCIES.length, 12);
+  F.CURRENCIES.forEach((c) => {
+    assert.ok(c.country && c.country.length > 1, c.code + ' country');
+    assert.ok(c.flag && c.flag.length >= 2, c.code + ' flag');
+  });
+  assert.strictEqual(F.currencyOf('INR').country, 'India');
+  assert.strictEqual(F.currencyOf('USD').country, 'United States');
+  // carousel slides come from totalsByCurrency: only currencies with
+  // accounts/investments appear — a lone INR card creates no INR slide
+  const st = blank();
+  st.accounts.push({ id: 'a1', name: 'US', currency: 'USD', openingBalance: 10 });
+  st.cards.push({ id: 'c1', name: 'IN Card', currency: 'INR', apr: 20, dueDay: 15, openingBalance: 5 });
+  assert.deepStrictEqual(Object.keys(F.totalsByCurrency(st)), ['USD']);
+});
+
 t('icons: every registry icon is a valid PNG', () => {
   const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   let checked = 0;

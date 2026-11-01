@@ -1,5 +1,5 @@
 /* Finance App service worker — offline-first app shell cache. */
-var CACHE = 'finance-app-v7';
+var CACHE = 'finance-app-v11';
 var ASSETS = [
   './', './index.html', './styles.css', './card-designs.js', './app.js', './manifest.webmanifest',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',

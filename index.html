@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Finance App</title>
 <meta name="description" content="A calm, local-first personal finance tracker. Works offline.">
-<meta name="theme-color" content="#5F7A61">
+<meta name="theme-color" id="metaThemeColor" content="#5F7A61">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -24,6 +24,11 @@ try {
   document.documentElement.dataset.theme = _dark ? 'dark' : 'light';
 } catch (e) { document.documentElement.dataset.theme = 'light'; }
 </script>
+<style>
+/* Paint the correct background before styles.css loads — no light flash in dark mode. */
+html[data-theme="dark"] { background: #1D1B17; }
+html[data-theme="light"] { background: #FAF7F1; }
+</style>
 </head>
 <body>
 <header class="app-header">
@@ -32,11 +37,13 @@ try {
     <span class="brand-name">Finance</span>
   </div>
   <div class="header-balance">
-    <span class="hb-label">Balance</span>
+    <span class="hb-label">Total balance</span>
     <span class="hb-value" id="headerBalance">$0.00</span>
   </div>
   <div class="header-actions">
     <button id="btnAdd" class="icon-btn primary" aria-label="Add entry" title="Add entry">＋</button>
+    <button id="btnBalanceToggle" class="icon-btn" aria-label="Show balances" title="Show balances">👁</button>
+    <button id="btnThemeToggle" class="icon-btn" aria-label="Switch to dark mode" title="Toggle dark mode">🌙</button>
     <button id="btnSettings" class="icon-btn" aria-label="Settings" title="Settings">⚙</button>
   </div>
 </header>
@@ -46,6 +53,15 @@ try {
 <main id="main">
   <!-- OVERVIEW -->
   <section id="view-overview" class="view active" aria-label="Overview">
+    <div class="card">
+      <div class="row-between">
+        <h2>Balances by country</h2>
+        <span class="muted-note hidden" id="balanceHint">Swipe left for more countries →</span>
+      </div>
+      <div class="balance-carousel" id="balanceCarousel"></div>
+      <div class="carousel-dots" id="balanceDots"></div>
+      <p class="hint">Balances open hidden — tap 👁 in the header to view them. Only countries where you have bank accounts or investments appear here, one per currency, always kept separate.</p>
+    </div>
     <div class="card">
       <div class="period-bar">
         <button id="periodPrev" class="icon-btn" aria-label="Previous period">‹</button>
@@ -57,14 +73,18 @@ try {
         <button id="periodNext" class="icon-btn" aria-label="Next period">›</button>
       </div>
       <div class="period-label" id="periodLabel"></div>
-      <div class="totals">
-        <div class="total in"><span class="t-label">In</span><span class="t-value" id="totalIn">$0</span></div>
-        <div class="total out"><span class="t-label">Out</span><span class="t-value" id="totalOut">$0</span></div>
-        <div class="total net"><span class="t-label">Net</span><span class="t-value" id="totalNet">$0</span></div>
-      </div>
+      <div id="periodTotals"></div>
     </div>
     <div class="card">
-      <h2>Spending by category</h2>
+      <h2>Balance breakdown</h2>
+      <div id="balanceBreakdown"></div>
+      <p class="hint">Total balance = bank accounts + investments, shown separately for each currency — currencies are never converted or added together. Credit card debt is tracked separately in Cards.</p>
+    </div>
+    <div class="card">
+      <div class="row-between">
+        <h2>Spending by category</h2>
+        <select id="chartCurrency" class="inline-select hidden" aria-label="Chart currency"></select>
+      </div>
       <canvas id="catChart" height="180" aria-label="Bar chart of spending by category"></canvas>
       <div id="catLegend" class="legend"></div>
     </div>
@@ -121,6 +141,22 @@ try {
     </div>
   </section>
 
+  <!-- INVESTMENTS -->
+  <section id="view-investments" class="view" aria-label="Investments">
+    <div class="card">
+      <div class="row-between">
+        <h2>Investments</h2>
+        <button class="btn small" id="btnAddInvestment">Add investment</button>
+      </div>
+      <div id="invSummary" style="margin-top:12px"></div>
+      <p class="hint">The total value counts toward your total balance in the header, separately for each currency. Update a holding's current value whenever it changes — no prices are fetched, everything stays on this device.</p>
+    </div>
+    <div class="card">
+      <h2>Holdings</h2>
+      <div id="investmentList" class="stack"></div>
+    </div>
+  </section>
+
   <!-- GOALS -->
   <section id="view-goals" class="view" aria-label="Savings goals">
     <div class="card">
@@ -160,13 +196,21 @@ try {
   <!-- SETTINGS -->
   <section id="view-settings" class="view" aria-label="Settings">
     <div class="card">
+      <h2>Currency</h2>
+      <label class="field">
+        <span>Default currency for new accounts, cards, goals and investments</span>
+        <select id="setDefaultCurrency"></select>
+      </label>
+      <p class="hint">Track money from multiple countries: every account, card, goal and investment has its own currency, chosen when you add or edit it. Totals are always shown separately per currency — amounts are never converted or added together.</p>
+    </div>
+    <div class="card">
       <h2>Appearance</h2>
       <div class="seg" role="radiogroup" aria-label="Appearance" id="themeSeg">
         <button data-theme-opt="system" role="radio" aria-checked="true">System</button>
         <button data-theme-opt="light" role="radio" aria-checked="false">Light</button>
         <button data-theme-opt="dark" role="radio" aria-checked="false">Dark</button>
       </div>
-      <p class="hint">System follows your device's light / dark setting.</p>
+      <p class="hint">System follows your device's light / dark setting. The 🌙 / ☀️ button in the header switches instantly; choosing it here or there saves the same preference on this device only.</p>
     </div>
     <div class="card">
       <h2>Payments</h2>
@@ -192,6 +236,7 @@ try {
         <button class="btn" data-csv="accounts">Accounts CSV</button>
         <button class="btn" data-csv="cards">Cards CSV</button>
         <button class="btn" data-csv="goals">Goals CSV</button>
+        <button class="btn" data-csv="investments">Investments CSV</button>
       </div>
       <p class="hint">UTF-8 with BOM, CRLF line endings — opens correctly in Excel, Numbers, Google Sheets and LibreOffice on any OS.</p>
     </div>
@@ -238,6 +283,7 @@ try {
   <button data-tab="activity"><span class="tab-ico">⇄</span><span>Activity</span></button>
   <button data-tab="cards"><span class="tab-ico">▭</span><span>Cards</span></button>
   <button data-tab="accounts"><span class="tab-ico">🏦</span><span>Banks</span></button>
+  <button data-tab="investments"><span class="tab-ico">📈</span><span>Invest</span></button>
   <button data-tab="goals"><span class="tab-ico">◎</span><span>Goals</span></button>
   <button data-tab="calendar"><span class="tab-ico">📅</span><span>Calendar</span></button>
 </nav>
@@ -260,6 +306,7 @@ try {
         <label class="field"><span>Date</span><input type="date" id="txDate" required></label>
         <label class="field"><span>Amount</span><input type="number" id="txAmount" min="0.01" step="0.01" inputmode="decimal" required></label>
       </div>
+      <p class="hint" id="txCurrencyNote" style="margin-top:-4px"></p>
       <label class="field" id="txCategoryWrap"><span>Category</span>
         <select id="txCategory"></select>
       </label>
@@ -284,6 +331,7 @@ try {
     <form id="cardForm">
       <input type="hidden" id="cardId">
       <label class="field"><span>Card name</span><input type="text" id="cardName" required maxlength="60" placeholder="e.g. Sapphire Visa"></label>
+      <label class="field"><span>Currency</span><select id="cardCurrency"></select></label>
       <label class="field"><span>Card design</span>
         <div class="issuer-row">
           <img id="cardIssuerPreview" class="issuer-preview" src="icons/banks/generic.png" alt="Card design">
@@ -315,10 +363,47 @@ try {
     <form id="acctForm">
       <input type="hidden" id="acctId">
       <label class="field"><span>Account name</span><input type="text" id="acctName" required maxlength="60" placeholder="e.g. Checking"></label>
+      <label class="field"><span>Currency</span><select id="acctCurrency"></select></label>
       <label class="field"><span>Starting balance</span><input type="number" id="acctBalance" step="0.01" inputmode="decimal" value="0"></label>
       <div class="row-end">
         <button type="button" class="btn ghost" data-close>Cancel</button>
         <button type="button" class="btn danger hidden" id="acctDelete">Delete</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Investment modal -->
+<div class="modal hidden" id="modalInvestment" role="dialog" aria-modal="true" aria-label="Investment">
+  <div class="sheet">
+    <h2 id="invModalTitle">Add investment</h2>
+    <form id="invForm">
+      <input type="hidden" id="invId">
+      <label class="field"><span>Name</span><input type="text" id="invName" required maxlength="60" placeholder="e.g. VOO · S&amp;P 500 ETF"></label>
+      <label class="field"><span>Type</span>
+        <select id="invType">
+          <option>Stocks</option>
+          <option>ETF</option>
+          <option>Index fund</option>
+          <option>Mutual fund</option>
+          <option>Crypto</option>
+          <option>Bonds</option>
+          <option>Retirement</option>
+          <option>Real estate</option>
+          <option>Other</option>
+        </select>
+      </label>
+      <label class="field"><span>Currency</span><select id="invCurrency"></select></label>
+      <div class="grid2">
+        <label class="field"><span>Amount invested</span><input type="number" id="invContributed" min="0" step="0.01" inputmode="decimal" value="0"></label>
+        <label class="field"><span>Current value</span><input type="number" id="invCurrentValue" min="0" step="0.01" inputmode="decimal" value="0"></label>
+      </div>
+      <label class="field"><span>Note</span><input type="text" id="invNote" maxlength="140" placeholder="Optional note"></label>
+      <p class="hint">Current value is what counts toward your total balance. Edit the holding to update its value as it grows or falls.</p>
+      <div class="row-end">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="button" class="btn danger hidden" id="invDelete">Delete</button>
         <button type="submit" class="btn primary">Save</button>
       </div>
     </form>
@@ -332,6 +417,7 @@ try {
     <form id="goalForm">
       <input type="hidden" id="goalId">
       <label class="field"><span>Goal name</span><input type="text" id="goalName" required maxlength="60" placeholder="e.g. Emergency fund"></label>
+      <label class="field"><span>Currency</span><select id="goalCurrency"></select></label>
       <div class="grid2">
         <label class="field"><span>Target amount</span><input type="number" id="goalTarget" min="1" step="0.01" inputmode="decimal" required></label>
         <label class="field"><span>Target date</span><input type="date" id="goalDate" required></label>

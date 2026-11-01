@@ -15,10 +15,45 @@ function todayStr() { return fmtDate(new Date()); }
 function addDays(d, n) { var x = new Date(d.getTime()); x.setDate(x.getDate() + n); return x; }
 function addDaysStr(s, n) { return fmtDate(addDays(parseDate(s), n)); }
 function clampDay(y, m, day) { return Math.min(day, new Date(y, m + 1, 0).getDate()); }
-function money(n) {
-  n = round2(+n || 0);
+/* ---------------- currencies ----------------
+   Multi-currency rule: every account, card, goal and investment has ONE
+   currency. Amounts in different currencies are NEVER converted and NEVER
+   added together — every total in the app is per currency. */
+var CURRENCIES = [
+  { code: 'USD', name: 'US Dollar', symbol: '$', decimals: 2, country: 'United States', flag: '🇺🇸' },
+  { code: 'INR', name: 'Indian Rupee', symbol: '\u20B9', decimals: 2, country: 'India', flag: '🇮🇳' },
+  { code: 'EUR', name: 'Euro', symbol: '\u20AC', decimals: 2, country: 'Eurozone', flag: '🇪🇺' },
+  { code: 'GBP', name: 'British Pound', symbol: '\u00A3', decimals: 2, country: 'United Kingdom', flag: '🇬🇧' },
+  { code: 'AED', name: 'UAE Dirham', symbol: 'AED ', decimals: 2, country: 'United Arab Emirates', flag: '🇦🇪' },
+  { code: 'CAD', name: 'Canadian Dollar', symbol: '$', decimals: 2, country: 'Canada', flag: '🇨🇦' },
+  { code: 'AUD', name: 'Australian Dollar', symbol: '$', decimals: 2, country: 'Australia', flag: '🇦🇺' },
+  { code: 'SGD', name: 'Singapore Dollar', symbol: '$', decimals: 2, country: 'Singapore', flag: '🇸🇬' },
+  { code: 'JPY', name: 'Japanese Yen', symbol: '\u00A5', decimals: 0, country: 'Japan', flag: '🇯🇵' },
+  { code: 'CNY', name: 'Chinese Yuan', symbol: '\u00A5', decimals: 2, country: 'China', flag: '🇨🇳' },
+  { code: 'CHF', name: 'Swiss Franc', symbol: 'CHF ', decimals: 2, country: 'Switzerland', flag: '🇨🇭' },
+  { code: 'PKR', name: 'Pakistani Rupee', symbol: 'Rs ', decimals: 2, country: 'Pakistan', flag: '🇵🇰' }
+];
+function currencyOf(code) {
+  for (var i = 0; i < CURRENCIES.length; i++) if (CURRENCIES[i].code === code) return CURRENCIES[i];
+  return CURRENCIES[0]; // USD fallback
+}
+function isValidCurrency(code) {
+  for (var i = 0; i < CURRENCIES.length; i++) if (CURRENCIES[i].code === code) return true;
+  return false;
+}
+function entityCurrency(entity) {
+  return (entity && isValidCurrency(entity.currency)) ? entity.currency : 'USD';
+}
+var balanceHidden = false;
+function setBalanceHidden(v) { balanceHidden = !!v; }
+function isBalanceHidden() { return balanceHidden; }
+function money(n, cur) {
+  var c = currencyOf(cur || 'USD');
+  if (balanceHidden) return c.symbol + '\u2022\u2022\u2022\u2022\u2022\u2022';
+  n = +n || 0;
   var sign = n < 0 ? '-' : '';
-  return sign + '$' + Math.abs(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  var fixed = Math.abs(n).toFixed(c.decimals);
+  return sign + c.symbol + fixed.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -86,11 +121,30 @@ function bankOf(id) {
   return BANKS[0];
 }
 
+/* ---------------- investments ---------------- */
+var INVESTMENT_TYPES = ['Stocks', 'ETF', 'Index fund', 'Mutual fund', 'Crypto', 'Bonds', 'Retirement', 'Real estate', 'Other'];
+/* Current value of all holdings — this is what counts toward the total balance. */
+function investmentsTotal(st, cur) {
+  var list = (st && st.investments) || [];
+  return round2(list.reduce(function (s, inv) {
+    if (cur && entityCurrency(inv) !== cur) return s;
+    return s + (+inv.currentValue || 0);
+  }, 0));
+}
+function investmentsContributed(st, cur) {
+  var list = (st && st.investments) || [];
+  return round2(list.reduce(function (s, inv) {
+    if (cur && entityCurrency(inv) !== cur) return s;
+    return s + (+inv.contributed || 0);
+  }, 0));
+}
+function investmentGain(inv) { return round2((+inv.currentValue || 0) - (+inv.contributed || 0)); }
+
 /* ---------------- storage ---------------- */
 var KEY = 'finance-app-v1';
 function blankState() {
-  return { transactions: [], accounts: [], cards: [], goals: [],
-    settings: { leadDays: 3, theme: 'system',
+  return { transactions: [], accounts: [], cards: [], goals: [], investments: [],
+    settings: { leadDays: 3, theme: 'system', defaultCurrency: 'USD',
       driveClientId: '', driveAutoBackup: false, driveFolderId: '', driveFileId: '',
       driveLastBackupAt: '', driveEmail: '' } };
 }
@@ -99,12 +153,22 @@ function blankState() {
 function normalizeState(obj) {
   var b = blankState();
   if (!obj || typeof obj !== 'object') return b;
-  ['transactions', 'accounts', 'cards', 'goals'].forEach(function (k) {
+  ['transactions', 'accounts', 'cards', 'goals', 'investments'].forEach(function (k) {
     if (Array.isArray(obj[k])) b[k] = obj[k];
+  });
+  b.investments = b.investments.filter(function (inv) { return inv && typeof inv === 'object' && inv.name; }).map(function (inv) {
+    return { id: inv.id || uid(), name: String(inv.name), type: INVESTMENT_TYPES.indexOf(inv.type) >= 0 ? inv.type : 'Other',
+      currency: isValidCurrency(inv.currency) ? inv.currency : 'USD',
+      contributed: Math.max(0, round2(+inv.contributed || 0)), currentValue: Math.max(0, round2(+inv.currentValue || 0)), note: String(inv.note || '') };
+  });
+  /* Older data has no currency on accounts/cards/goals: it was all USD. */
+  ['accounts', 'cards', 'goals'].forEach(function (k) {
+    b[k].forEach(function (e) { if (e && typeof e === 'object') e.currency = isValidCurrency(e.currency) ? e.currency : 'USD'; });
   });
   var s = obj.settings || {};
   if (s.leadDays === 2 || s.leadDays === 3) b.settings.leadDays = s.leadDays;
   if (s.theme === 'light' || s.theme === 'dark' || s.theme === 'system') b.settings.theme = s.theme;
+  if (isValidCurrency(s.defaultCurrency)) b.settings.defaultCurrency = s.defaultCurrency;
   if (typeof s.driveClientId === 'string') b.settings.driveClientId = s.driveClientId;
   if (typeof s.driveAutoBackup === 'boolean') b.settings.driveAutoBackup = s.driveAutoBackup;
   if (typeof s.driveFolderId === 'string') b.settings.driveFolderId = s.driveFolderId;
@@ -164,6 +228,57 @@ function recompute(st) {
   return { acctBal: acctBal, cardBal: cardBal, goalSaved: goalSaved };
 }
 
+/* Total balance shown in the header: bank accounts + investments.
+   Card debt is NOT subtracted here — it is tracked separately in Cards.
+   Pass a recompute() result as `bal` to avoid recomputing. */
+function accountsTotal(st, bal, cur) {
+  var b = bal || recompute(st);
+  return round2(st.accounts.reduce(function (s, a) {
+    if (cur && entityCurrency(a) !== cur) return s;
+    return s + (b.acctBal[a.id] || 0);
+  }, 0));
+}
+/* With `cur`: the total balance in that one currency. Without: the grand
+   sum (only meaningful for single-currency data — the UI always passes a
+   currency or uses totalsByCurrency, so currencies are never mixed on screen). */
+function totalBalance(st, bal, cur) {
+  return round2(accountsTotal(st, bal, cur) + investmentsTotal(st, cur));
+}
+/* The separate per-currency totals the UI renders: { USD: {...}, INR: {...} } */
+function totalsByCurrency(st, bal) {
+  var b = bal || recompute(st);
+  var out = {};
+  function bucket(code) {
+    if (!out[code]) out[code] = { accounts: 0, investments: 0, total: 0 };
+    return out[code];
+  }
+  st.accounts.forEach(function (a) { var bk = bucket(entityCurrency(a)); bk.accounts = round2(bk.accounts + (b.acctBal[a.id] || 0)); });
+  ((st && st.investments) || []).forEach(function (inv) { var bk = bucket(entityCurrency(inv)); bk.investments = round2(bk.investments + (+inv.currentValue || 0)); });
+  Object.keys(out).forEach(function (code) { out[code].total = round2(out[code].accounts + out[code].investments); });
+  return out;
+}
+/* Currencies present anywhere in the data, in registry order. */
+function currenciesInUse(st) {
+  var seen = {};
+  (st.accounts || []).forEach(function (a) { seen[entityCurrency(a)] = true; });
+  (st.cards || []).forEach(function (c) { seen[entityCurrency(c)] = true; });
+  (st.goals || []).forEach(function (g) { seen[entityCurrency(g)] = true; });
+  (st.investments || []).forEach(function (inv) { seen[entityCurrency(inv)] = true; });
+  (st.transactions || []).forEach(function (t) { seen[txCurrency(st, t)] = true; });
+  var list = CURRENCIES.map(function (c) { return c.code; }).filter(function (code) { return seen[code]; });
+  return list.length ? list : [(st.settings && st.settings.defaultCurrency) || 'USD'];
+}
+/* A transaction's currency comes from the entity it touches. */
+function txCurrency(st, t) {
+  if (!t) return 'USD';
+  function find(list, id) { for (var i = 0; i < (list || []).length; i++) if (list[i].id === id) return list[i]; return null; }
+  if (t.kind === 'income') return entityCurrency(find(st.accounts, t.accountId));
+  if (t.kind === 'expense') return t.methodType === 'card' ? entityCurrency(find(st.cards, t.methodId)) : entityCurrency(find(st.accounts, t.methodId));
+  if (t.kind === 'cardpayment') return entityCurrency(find(st.cards, t.cardId));
+  if (t.kind === 'saving') return entityCurrency(find(st.goals, t.goalId));
+  return 'USD';
+}
+
 function periodRange(view, refStr) {
   var ref = parseDate(refStr), s, e, label;
   if (view === 'daily') {
@@ -202,6 +317,36 @@ function summarize(st, view, refStr) {
     }
   });
   return { inn: inn, out: out, net: round2(inn - out), byCat: byCat, label: r.label };
+}
+
+/* Same math as summarize(), but every currency gets its own bucket —
+   period totals are never mixed across currencies. */
+function summarizeByCurrency(st, view, refStr) {
+  var r = periodRange(view, refStr);
+  var out = {};
+  function bucket(code) {
+    if (!out[code]) out[code] = { inn: 0, out: 0, net: 0, byCat: {} };
+    return out[code];
+  }
+  st.transactions.forEach(function (t) {
+    if (t.date < r.start || t.date > r.end) return;
+    var bk = bucket(txCurrency(st, t));
+    var amt = round2(+t.amount || 0);
+    if (t.kind === 'income') { bk.inn = round2(bk.inn + amt); }
+    else if (t.kind === 'expense') {
+      bk.out = round2(bk.out + amt);
+      var c = t.category || 'Other';
+      bk.byCat[c] = round2((bk.byCat[c] || 0) + amt);
+    } else if (t.kind === 'cardpayment') {
+      bk.out = round2(bk.out + amt);
+      bk.byCat['Card payment'] = round2((bk.byCat['Card payment'] || 0) + amt);
+    } else if (t.kind === 'saving') {
+      bk.out = round2(bk.out + amt);
+      bk.byCat['Savings'] = round2((bk.byCat['Savings'] || 0) + amt);
+    }
+  });
+  Object.keys(out).forEach(function (code) { out[code].net = round2(out[code].inn - out[code].out); });
+  return { label: r.label, currencies: out };
 }
 
 function nextDueDate(dueDay, fromStr) {
@@ -270,13 +415,13 @@ function toCSV(rows) {
   return '﻿' + rows.map(function (r) { return r.map(csvCell).join(','); }).join('\r\n') + '\r\n';
 }
 function txCSV(st) {
-  var rows = [['id', 'date', 'kind', 'amount', 'category', 'account', 'method', 'card', 'goal', 'note']];
+  var rows = [['id', 'date', 'kind', 'amount', 'currency', 'category', 'account', 'method', 'card', 'goal', 'note']];
   var an = {}, cn = {}, gn = {};
   st.accounts.forEach(function (a) { an[a.id] = a.name; });
   st.cards.forEach(function (c) { cn[c.id] = c.name; });
   st.goals.forEach(function (g) { gn[g.id] = g.name; });
   st.transactions.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; }).forEach(function (t) {
-    rows.push([t.id, t.date, t.kind, (+t.amount).toFixed(2), t.category || '',
+    rows.push([t.id, t.date, t.kind, (+t.amount).toFixed(2), txCurrency(st, t), t.category || '',
       an[t.accountId] || '', t.methodType === 'card' ? 'card' : (t.methodType || ''),
       cn[t.cardId || t.methodId] || '', gn[t.goalId] || '', t.note || '']);
   });
@@ -284,23 +429,31 @@ function txCSV(st) {
 }
 function accountsCSV(st) {
   var bal = recompute(st).acctBal;
-  var rows = [['id', 'name', 'current_balance']];
-  st.accounts.forEach(function (a) { rows.push([a.id, a.name, (bal[a.id] || 0).toFixed(2)]); });
+  var rows = [['id', 'name', 'currency', 'current_balance']];
+  st.accounts.forEach(function (a) { rows.push([a.id, a.name, entityCurrency(a), (bal[a.id] || 0).toFixed(2)]); });
   return toCSV(rows);
 }
 function cardsCSV(st) {
   var bal = recompute(st).cardBal;
-  var rows = [['id', 'name', 'apr', 'due_day', 'limit', 'min_payment', 'current_balance']];
+  var rows = [['id', 'name', 'currency', 'apr', 'due_day', 'limit', 'min_payment', 'current_balance']];
   st.cards.forEach(function (c) {
-    rows.push([c.id, c.name, c.apr, c.dueDay, c.limit || '', c.minPayment || '', (bal[c.id] || 0).toFixed(2)]);
+    rows.push([c.id, c.name, entityCurrency(c), c.apr, c.dueDay, c.limit || '', c.minPayment || '', (bal[c.id] || 0).toFixed(2)]);
+  });
+  return toCSV(rows);
+}
+function investmentsCSV(st) {
+  var rows = [['id', 'name', 'type', 'currency', 'amount_invested', 'current_value', 'gain_loss', 'note']];
+  ((st && st.investments) || []).forEach(function (inv) {
+    rows.push([inv.id, inv.name, inv.type || 'Other', entityCurrency(inv), (+inv.contributed || 0).toFixed(2),
+      (+inv.currentValue || 0).toFixed(2), investmentGain(inv).toFixed(2), inv.note || '']);
   });
   return toCSV(rows);
 }
 function goalsCSV(st) {
   var sv = recompute(st).goalSaved;
-  var rows = [['id', 'name', 'target', 'saved', 'target_date']];
+  var rows = [['id', 'name', 'currency', 'target', 'saved', 'target_date']];
   st.goals.forEach(function (g) {
-    rows.push([g.id, g.name, (+g.target).toFixed(2), (sv[g.id] || 0).toFixed(2), g.targetDate]);
+    rows.push([g.id, g.name, entityCurrency(g), (+g.target).toFixed(2), (sv[g.id] || 0).toFixed(2), g.targetDate]);
   });
   return toCSV(rows);
 }
@@ -308,6 +461,8 @@ function goalsCSV(st) {
 /* ---------------- backup / restore ---------------- */
 function validateBackup(obj) {
   if (!obj || typeof obj !== 'object') return 'Not a valid backup file.';
+  /* `investments` is intentionally not required: backups made before
+     Investments existed must still restore (they load with no holdings). */
   var need = ['transactions', 'accounts', 'cards', 'goals'];
   for (var i = 0; i < need.length; i++) if (!Array.isArray(obj[need[i]])) return 'Backup is missing "' + need[i] + '".';
   return null;
@@ -515,10 +670,10 @@ function dueReminders(st, todayS) {
     if (b <= 0) return;
     var plan = cardPlan(c, b, st.settings.leadDays, today);
     if (plan.status === 'urgent') {
-      items.push({ kind: 'card', urgent: true, text: c.name + ': pay ' + money(b) + ' now — due ' + plan.due + '.' });
+      items.push({ kind: 'card', urgent: true, text: c.name + ': pay ' + money(b, entityCurrency(c)) + ' now — due ' + plan.due + '.' });
     } else if (plan.status === 'scheduled') {
       plan.payments.forEach(function (p) {
-        if (p.date <= soon) items.push({ kind: 'card', urgent: p.date <= today, text: c.name + ': ' + p.label.toLowerCase() + ' of ' + money(p.amount) + ' on ' + p.date + ' (due ' + plan.due + ').' });
+        if (p.date <= soon) items.push({ kind: 'card', urgent: p.date <= today, text: c.name + ': ' + p.label.toLowerCase() + ' of ' + money(p.amount, entityCurrency(c)) + ' on ' + p.date + ' (due ' + plan.due + ').' });
       });
     }
   });
@@ -526,7 +681,7 @@ function dueReminders(st, todayS) {
     var saved = bal.goalSaved[g.id] || 0;
     var rm = savingsRoadmap(g, saved, today);
     if (!rm.done && !rm.overdue && rm.remaining > 0 && rm.daysLeft <= 14) {
-      items.push({ kind: 'goal', urgent: false, text: g.name + ': ' + money(rm.remaining) + ' to go in ' + rm.daysLeft + ' days (' + money(rm.perDay) + '/day).' });
+      items.push({ kind: 'goal', urgent: false, text: g.name + ': ' + money(rm.remaining, entityCurrency(g)) + ' to go in ' + rm.daysLeft + ' days (' + money(rm.perDay, entityCurrency(g)) + '/day).' });
     }
   });
   return items;
@@ -555,9 +710,21 @@ function applyTheme() {
   var t = resolveTheme(state.settings.theme, devicePrefersDark());
   try {
     document.documentElement.dataset.theme = t;
-    var meta = document.querySelector('meta[name="theme-color"]');
+    var meta = document.getElementById('metaThemeColor') || document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', t === 'dark' ? '#1D1B17' : '#5F7A61');
+    var toggle = document.getElementById('btnThemeToggle');
+    if (toggle) {
+      toggle.textContent = t === 'dark' ? '☀️' : '🌙';
+      toggle.setAttribute('aria-label', t === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+      toggle.setAttribute('aria-pressed', String(t === 'dark'));
+    }
   } catch (e) {}
+}
+function toggleTheme() {
+  var current = resolveTheme(state.settings.theme, devicePrefersDark());
+  state.settings.theme = current === 'dark' ? 'light' : 'dark';
+  applyTheme();
+  saveAndRender(current === 'dark' ? 'Light mode on.' : 'Dark mode on.');
 }
 
 /* ---------------- download helper ---------------- */
@@ -573,7 +740,7 @@ function download(name, content, mime) {
 
 /* ---------------- app state + rendering ---------------- */
 var state = null;
-var ui = { tab: 'overview', periodView: 'monthly', periodRef: todayStr(), activityFilter: 'all', openGoal: null, calRef: todayStr(), calDay: null };
+var ui = { tab: 'overview', periodView: 'monthly', periodRef: todayStr(), activityFilter: 'all', openGoal: null, calRef: todayStr(), calDay: null, chartCurrency: null, carouselIndex: 0 };
 var INCOME_CATS = ['Paycheck', 'Freelance', 'Interest', 'Gift', 'Other'];
 var EXPENSE_CATS = ['Groceries', 'Dining', 'Transport', 'Housing', 'Utilities', 'Health', 'Shopping', 'Entertainment', 'Travel', 'Fees', 'Other'];
 var CHART_COLORS = ['#5F7A61', '#7FA88F', '#A8BFA0', '#D9C27E', '#C98F5F', '#B3541E', '#8A8375', '#4E6E8E'];
@@ -602,7 +769,7 @@ function showTab(name) {
   render();
 }
 
-function drawChart(canvas, byCat) {
+function drawChart(canvas, byCat, cur) {
   var dpr = window.devicePixelRatio || 1;
   var w = canvas.clientWidth || canvas.parentElement.clientWidth || 300, h = 180;
   canvas.width = w * dpr; canvas.height = h * dpr;
@@ -611,7 +778,7 @@ function drawChart(canvas, byCat) {
   try { darkMode = document.documentElement.getAttribute('data-theme') === 'dark'; } catch (e) {}
   var inkCol = darkMode ? '#EDE8DC' : '#2C2A25';
   var mutCol = darkMode ? '#A79E8B' : '#8A8375';
-  var ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr); ctx.clearRect(0, 0, w, h);
+  var ctx = canvas.getContext('2d'); if (!ctx) return; ctx.scale(dpr, dpr); ctx.clearRect(0, 0, w, h);
   var entries = Object.keys(byCat).map(function (k) { return [k, byCat[k]]; })
     .sort(function (a, b) { return b[1] - a[1]; }).slice(0, 8);
   if (!entries.length) {
@@ -630,17 +797,75 @@ function drawChart(canvas, byCat) {
     if (ctx.roundRect) ctx.roundRect(x, y, bwid, bhgt, 4); else ctx.rect(x, y, bwid, bhgt);
     ctx.fill();
     ctx.fillStyle = inkCol; ctx.font = '600 11px sans-serif';
-    ctx.fillText('$' + Math.round(e[1]), x + bwid / 2, y - 4);
+    ctx.fillText(money(e[1], cur), x + bwid / 2, y - 4);
     ctx.fillStyle = mutCol; ctx.font = '10px sans-serif';
     var label = e[0].length > 10 ? e[0].slice(0, 9) + '…' : e[0];
     ctx.fillText(label, x + bwid / 2, h - 18);
   });
 }
 
+function updateBalanceToggle() {
+  var b = $('btnBalanceToggle'); if (!b) return;
+  b.textContent = balanceHidden ? '\uD83D\uDC41' : '\uD83D\uDE48';
+  b.setAttribute('aria-label', balanceHidden ? 'Show balances' : 'Hide balances');
+  b.setAttribute('aria-pressed', String(!balanceHidden));
+  b.title = balanceHidden ? 'Show balances' : 'Hide balances';
+}
+function toggleBalanceVisibility() {
+  setBalanceHidden(!balanceHidden);
+  render();
+}
+
+/* Opening view: one swipeable slide per country that actually has balance
+   data (a bank account or an investment). Swipe/scroll left for the next
+   country. Balances render through money(), so the privacy toggle masks
+   every figure here automatically. */
+function renderBalanceCarousel(bal) {
+  var wrap = $('balanceCarousel'); if (!wrap) return;
+  var byCur = totalsByCurrency(state, bal);
+  var codes = Object.keys(byCur);
+  if (!codes.length) codes = [state.settings.defaultCurrency || 'USD'];
+  wrap.innerHTML = codes.map(function (code) {
+    var t = byCur[code] || { accounts: 0, investments: 0, total: 0 };
+    var c = currencyOf(code);
+    var nAcct = state.accounts.filter(function (a) { return entityCurrency(a) === code; }).length;
+    var nInv = (state.investments || []).filter(function (inv) { return entityCurrency(inv) === code; }).length;
+    return '<div class="balance-slide" data-cur="' + esc(code) + '">' +
+      '<div class="bs-top"><span class="bs-flag">' + c.flag + '</span><span class="bs-country">' + esc(c.country) + '</span><span class="bs-code">' + esc(code) + '</span></div>' +
+      '<div class="bs-label">Total balance</div>' +
+      '<div class="bs-value">' + money(t.total, code) + '</div>' +
+      '<div class="bs-rows"><span>Bank accounts<br><strong>' + money(t.accounts, code) + '</strong></span>' +
+      '<span>Investments<br><strong>' + money(t.investments, code) + '</strong></span></div>' +
+      '<div class="bs-meta">' + nAcct + (nAcct === 1 ? ' account' : ' accounts') + ' \u00B7 ' + nInv + (nInv === 1 ? ' holding' : ' holdings') + '</div>' +
+      '</div>';
+  }).join('');
+  var dots = $('balanceDots');
+  if (dots) {
+    dots.innerHTML = codes.map(function (code, i) {
+      return '<button class="cdot' + (i === (ui.carouselIndex || 0) ? ' on' : '') + '" data-slide="' + i + '" aria-label="Show ' + esc(code) + ' balance"></button>';
+    }).join('');
+  }
+  var hint = $('balanceHint');
+  if (hint) hint.classList.toggle('hidden', codes.length <= 1);
+  if (ui.carouselIndex && ui.carouselIndex >= codes.length) ui.carouselIndex = 0;
+}
+
 function render() {
   var bal = recompute(state);
-  var totalBal = state.accounts.reduce(function (s, a) { return s + (bal.acctBal[a.id] || 0); }, 0);
-  $('headerBalance').textContent = money(totalBal);
+  updateBalanceToggle();
+  renderBalanceCarousel(bal);
+  var hb = $('headerBalance');
+  var byCur = totalsByCurrency(state, bal);
+  var hbCodes = Object.keys(byCur);
+  if (hbCodes.length <= 1) {
+    hb.textContent = money(hbCodes.length ? byCur[hbCodes[0]].total : 0, hbCodes[0] || state.settings.defaultCurrency);
+    hb.classList.remove('multi');
+  } else {
+    hb.innerHTML = hbCodes.map(function (code) {
+      return '<span class="hb-line">' + esc(code) + ' ' + money(byCur[code].total, code) + '</span>';
+    }).join('');
+    hb.classList.add('multi');
+  }
 
   // reminders banner
   var rems = dueReminders(state, todayStr());
@@ -650,24 +875,61 @@ function render() {
     banner.classList.remove('hidden');
   } else banner.classList.add('hidden');
 
-  renderOverview(bal); renderActivity(bal); renderCards(bal); renderAccounts(bal); renderGoals(bal); renderCalendar(bal); renderSettings();
+  renderOverview(bal); renderActivity(bal); renderCards(bal); renderAccounts(bal); renderInvestments(bal); renderGoals(bal); renderCalendar(bal); renderSettings();
+}
+
+function totalsBlockHtml(code, inn, out, net, showHead) {
+  return '<div class="cur-block">' + (showHead ? '<div class="cur-head">' + esc(code) + ' · ' + esc(currencyOf(code).name) + '</div>' : '') +
+    '<div class="totals">' +
+    '<div class="total in"><span class="t-label">In</span><span class="t-value">' + money(inn, code) + '</span></div>' +
+    '<div class="total out"><span class="t-label">Out</span><span class="t-value">' + money(out, code) + '</span></div>' +
+    '<div class="total net"><span class="t-label">Net</span><span class="t-value" style="color:' + (net < 0 ? 'var(--danger)' : 'var(--accent-ink)') + '">' + money(net, code) + '</span></div>' +
+    '</div></div>';
 }
 
 function renderOverview(bal) {
-  var s = summarize(state, ui.periodView, ui.periodRef);
+  var s = summarizeByCurrency(state, ui.periodView, ui.periodRef);
   $('periodLabel').textContent = s.label;
-  $('totalIn').textContent = money(s.inn);
-  $('totalOut').textContent = money(s.out);
-  var net = $('totalNet'); net.textContent = money(s.net);
-  net.style.color = s.net < 0 ? '#A63A3A' : '#3E5540';
-  document.querySelectorAll('.seg button').forEach(function (b) {
+  document.querySelectorAll('.period-bar .seg button').forEach(function (b) {
     var on = b.dataset.view === ui.periodView;
     b.classList.toggle('on', on); b.setAttribute('aria-selected', on);
   });
-  drawChart($('catChart'), s.byCat);
-  var keys = Object.keys(s.byCat).sort(function (a, b) { return s.byCat[b] - s.byCat[a]; }).slice(0, 8);
+  var periodCodes = Object.keys(s.currencies);
+  if (!periodCodes.length) periodCodes = currenciesInUse(state);
+  var multi = periodCodes.length > 1 || currenciesInUse(state).length > 1;
+  $('periodTotals').innerHTML = periodCodes.map(function (code) {
+    var c = s.currencies[code] || { inn: 0, out: 0, net: 0 };
+    return totalsBlockHtml(code, c.inn, c.out, c.net, multi);
+  }).join('');
+  var breakdown = $('balanceBreakdown');
+  if (breakdown) {
+    var byCur = totalsByCurrency(state, bal);
+    var bCodes = Object.keys(byCur);
+    if (!bCodes.length) bCodes = [state.settings.defaultCurrency];
+    breakdown.innerHTML = bCodes.map(function (code) {
+      var t = byCur[code] || { accounts: 0, investments: 0, total: 0 };
+      return (bCodes.length > 1 ? '<div class="cur-head">' + esc(code) + ' · ' + esc(currencyOf(code).name) + '</div>' : '') +
+        '<div class="kv"><span class="k">Bank accounts</span><span>' + money(t.accounts, code) + '</span></div>' +
+        '<div class="kv"><span class="k">Investments</span><span>' + money(t.investments, code) + '</span></div>' +
+        '<div class="kv"><span class="k"><strong>Total balance</strong></span><span><strong>' + money(t.total, code) + '</strong></span></div>';
+    }).join('');
+  }
+  /* Chart: one currency at a time (never mixed) — selector appears only
+     when more than one currency has spending. */
+  var chartCodes = periodCodes.filter(function (code) { return s.currencies[code] && Object.keys(s.currencies[code].byCat).length; });
+  if (!chartCodes.length) chartCodes = periodCodes;
+  if (!ui.chartCurrency || chartCodes.indexOf(ui.chartCurrency) < 0) ui.chartCurrency = chartCodes[0];
+  var chartSel = $('chartCurrency');
+  if (chartSel) {
+    chartSel.innerHTML = chartCodes.map(function (code) { return '<option value="' + esc(code) + '">' + esc(code) + '</option>'; }).join('');
+    chartSel.value = ui.chartCurrency;
+    chartSel.classList.toggle('hidden', chartCodes.length <= 1);
+  }
+  var chartData = (s.currencies[ui.chartCurrency] && s.currencies[ui.chartCurrency].byCat) || {};
+  drawChart($('catChart'), chartData, ui.chartCurrency);
+  var keys = Object.keys(chartData).sort(function (a, b) { return chartData[b] - chartData[a]; }).slice(0, 8);
   $('catLegend').innerHTML = keys.map(function (k, i) {
-    return '<span><span class="sw" style="background:' + CHART_COLORS[i % CHART_COLORS.length] + '"></span>' + esc(k) + ' ' + money(s.byCat[k]) + '</span>';
+    return '<span><span class="sw" style="background:' + CHART_COLORS[i % CHART_COLORS.length] + '"></span>' + esc(k) + ' ' + money(chartData[k], ui.chartCurrency) + '</span>';
   }).join('');
 
   var up = [];
@@ -679,7 +941,7 @@ function renderOverview(bal) {
       if (p.date <= addDaysStr(todayStr(), 14)) {
         up.push('<div class="item"><div class="main"><div class="title">' + esc(c.name) + '</div><div class="sub">' +
           esc(p.label) + ' · due ' + esc(plan.due) + (plan.status === 'urgent' ? ' <span class="pill urgent">PAY NOW</span>' : '') +
-          '</div></div><div class="amt">' + money(p.amount) + '</div></div>');
+          '</div></div><div class="amt">' + money(p.amount, entityCurrency(c)) + '</div></div>');
       }
     });
   });
@@ -689,22 +951,23 @@ function renderOverview(bal) {
   state.goals.forEach(function (g) {
     var saved = bal.goalSaved[g.id] || 0;
     var rm = savingsRoadmap(g, saved, todayStr());
-    if (rm.done) pace.push('<div class="item"><div class="main"><div class="title">' + esc(g.name) + '</div><div class="sub">Goal reached 🎉</div></div><div class="amt pos">' + money(saved) + '</div></div>');
-    else if (!rm.overdue) pace.push('<div class="item"><div class="main"><div class="title">' + esc(g.name) + '</div><div class="sub">' + money(rm.perDay) + '/day · ' + rm.daysLeft + ' days left</div></div><div class="amt">' + money(rm.remaining) + ' to go</div></div>');
+    if (rm.done) pace.push('<div class="item"><div class="main"><div class="title">' + esc(g.name) + '</div><div class="sub">Goal reached 🎉</div></div><div class="amt pos">' + money(saved, entityCurrency(g)) + '</div></div>');
+    else if (!rm.overdue) pace.push('<div class="item"><div class="main"><div class="title">' + esc(g.name) + '</div><div class="sub">' + money(rm.perDay, entityCurrency(g)) + '/day · ' + rm.daysLeft + ' days left</div></div><div class="amt">' + money(rm.remaining, entityCurrency(g)) + ' to go</div></div>');
   });
   $('savingsPace').innerHTML = pace.length ? pace.join('') : '<div class="empty">No savings goals yet.</div>';
 }
 
 function txLine(t) {
+  var cur = txCurrency(state, t);
   var amtCls = t.kind === 'income' ? 'pos' : 'neg';
   var sign = t.kind === 'income' ? '+' : '−';
   var desc = t.kind === 'income' ? 'Income · ' + (t.category || '') :
     t.kind === 'expense' ? (t.category || 'Expense') + ' · ' + (t.methodType === 'card' ? nameOf(state.cards, t.methodId) : nameOf(state.accounts, t.methodId)) :
     t.kind === 'cardpayment' ? 'Card payment · ' + nameOf(state.cards, t.cardId) :
     'Savings · ' + nameOf(state.goals, t.goalId);
-  return '<div class="item" data-tx="' + t.id + '"><div class="main"><div class="title">' + sign + money(t.amount) + '</div>' +
-    '<div class="sub">' + t.date + ' · ' + esc(desc) + (t.note ? ' · ' + esc(t.note) : '') + '</div></div>' +
-    '<div class="amt ' + amtCls + '">' + sign + money(t.amount).slice(0) + '</div></div>';
+  return '<div class="item" data-tx="' + t.id + '"><div class="main"><div class="title">' + sign + money(t.amount, cur) + '</div>' +
+    '<div class="sub">' + t.date + ' · ' + esc(cur) + ' · ' + esc(desc) + (t.note ? ' · ' + esc(t.note) : '') + '</div></div>' +
+    '<div class="amt ' + amtCls + '">' + sign + money(t.amount, cur) + '</div></div>';
 }
 
 function renderActivity() {
@@ -724,9 +987,9 @@ function renderCards(bal) {
     return '<div class="item"><img class="card-ico" src="' + bk.icon + '" alt="' + esc(bk.name) + '">' +
       '<div class="main"><div class="title">' + esc(c.name) + '</div>' +
       '<div class="sub">APR ' + esc(String(c.apr)) + '% · due day ' + c.dueDay +
-      (c.minPayment ? ' · min ' + money(c.minPayment) : '') + (util != null ? ' · ' + util + '% of limit' : '') + '</div>' +
+      (c.minPayment ? ' · min ' + money(c.minPayment, entityCurrency(c)) : '') + (util != null ? ' · ' + util + '% of limit' : '') + '</div>' +
       '<div class="progress"><div style="width:' + Math.min(100, util || 0) + '%"></div></div></div>' +
-      '<div style="text-align:right"><div class="amt">' + money(b) + '</div>' +
+      '<div style="text-align:right"><div class="amt">' + money(b, entityCurrency(c)) + '</div>' +
       '<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end">' +
       '<button class="btn small" data-paycard="' + c.id + '">Pay</button>' +
       '<button class="btn small ghost" data-editcard="' + c.id + '">Edit</button></div></div></div>';
@@ -744,7 +1007,7 @@ function renderCards(bal) {
     var plan = cardPlan(c, b, state.settings.leadDays, todayStr());
     if (plan.status === 'clear') return '';
     var rows = plan.payments.map(function (p) {
-      return '<div class="kv"><span class="k">' + esc(p.label) + ' · ' + esc(p.date) + '</span><span>' + money(p.amount) + '</span></div>';
+      return '<div class="kv"><span class="k">' + esc(p.label) + ' · ' + esc(p.date) + '</span><span>' + money(p.amount, entityCurrency(c)) + '</span></div>';
     }).join('');
     return '<div class="item" style="display:block"><div class="row-between"><div class="title">' + esc(c.name) + '</div>' +
       (plan.status === 'urgent' ? '<span class="pill urgent">PAY NOW · due ' + esc(plan.due) + '</span>' : '<span class="pill">due ' + esc(plan.due) + '</span>') +
@@ -786,7 +1049,7 @@ function renderCalendar(bal) {
         var bk = bankOf(c.bankId);
         return '<div class="item"><img class="card-ico" src="' + bk.icon + '" alt="' + esc(bk.name) + '">' +
           '<div class="main"><div class="title">' + esc(c.name) + '</div>' +
-          '<div class="sub">Balance ' + money(b) + ' · APR ' + esc(String(c.apr)) + '%</div></div>' +
+          '<div class="sub">Balance ' + money(b, entityCurrency(c)) + ' · APR ' + esc(String(c.apr)) + '%</div></div>' +
           '<button class="btn small" data-calpay="' + c.id + '">Pay</button></div>';
       }).join('');
   }
@@ -814,8 +1077,8 @@ function shiftCalMonth(dir) {
 function renderAccounts(bal) {
   $('accountList').innerHTML = state.accounts.map(function (a) {
     return '<div class="item"><div class="main"><div class="title">' + esc(a.name) + '</div>' +
-      '<div class="sub">Balance updates automatically from your entries</div></div>' +
-      '<div style="text-align:right"><div class="amt">' + money(bal.acctBal[a.id] || 0) + '</div>' +
+      '<div class="sub">' + esc(entityCurrency(a)) + ' · Balance updates automatically from your entries</div></div>' +
+      '<div style="text-align:right"><div class="amt">' + money(bal.acctBal[a.id] || 0, entityCurrency(a)) + '</div>' +
       '<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end">' +
       '<button class="btn small" data-deposit="' + a.id + '">Deposit</button>' +
       '<button class="btn small ghost" data-editacct="' + a.id + '">Edit</button></div></div></div>';
@@ -828,12 +1091,52 @@ function renderAccounts(bal) {
   });
 }
 
+function renderInvestments() {
+  var list = state.investments || [];
+  var codes = [];
+  list.forEach(function (inv) { var c = entityCurrency(inv); if (codes.indexOf(c) < 0) codes.push(c); });
+  if (!codes.length) codes = [state.settings.defaultCurrency || 'USD'];
+  var multi = codes.length > 1;
+  var summary = $('invSummary');
+  if (summary) {
+    summary.innerHTML = codes.map(function (code) {
+      var tv = investmentsTotal(state, code);
+      var ti = investmentsContributed(state, code);
+      var tg = round2(tv - ti);
+      return '<div class="cur-block">' + (multi ? '<div class="cur-head">' + esc(code) + ' · ' + esc(currencyOf(code).name) + '</div>' : '') +
+        '<div class="totals">' +
+        '<div class="total in"><span class="t-label">Value</span><span class="t-value">' + money(tv, code) + '</span></div>' +
+        '<div class="total"><span class="t-label">Invested</span><span class="t-value">' + money(ti, code) + '</span></div>' +
+        '<div class="total"><span class="t-label">Gain / loss</span><span class="t-value" style="color:' + (tg < 0 ? 'var(--danger)' : 'var(--accent-ink)') + '">' + (tg > 0 ? '+' : '') + money(tg, code) + '</span></div>' +
+        '</div></div>';
+    }).join('');
+  }
+  var listEl = $('investmentList'); if (!listEl) return;
+  listEl.innerHTML = list.map(function (inv) {
+    var cur = entityCurrency(inv);
+    var gain = investmentGain(inv);
+    var pct = inv.contributed > 0 ? Math.round(gain / inv.contributed * 1000) / 10 : null;
+    var gainHtml = '<span class="pill ' + (gain < 0 ? 'loss' : '') + '">' +
+      (gain > 0 ? '▲ +' : gain < 0 ? '▼ −' : '') + money(Math.abs(gain), cur) +
+      (pct != null && gain !== 0 ? ' (' + (pct > 0 ? '+' : '') + pct + '%)' : '') + '</span>';
+    return '<div class="item"><div class="main"><div class="title">' + esc(inv.name) + '</div>' +
+      '<div class="sub">' + esc(inv.type || 'Other') + ' · ' + esc(cur) + ' · invested ' + money(inv.contributed, cur) +
+      (inv.note ? ' · ' + esc(inv.note) : '') + '</div>' + gainHtml + '</div>' +
+      '<div style="text-align:right"><div class="amt pos">' + money(inv.currentValue, cur) + '</div>' +
+      '<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end">' +
+      '<button class="btn small ghost" data-editinv="' + inv.id + '">Edit</button></div></div></div>';
+  }).join('') || '<div class="empty">No investments yet. Add your first holding — its current value counts toward your total balance.</div>';
+  listEl.querySelectorAll('[data-editinv]').forEach(function (btn) {
+    btn.addEventListener('click', function (e) { e.stopPropagation(); openInvestmentModal(btn.dataset.editinv); });
+  });
+}
+
 function renderGoals(bal) {
   $('goalList').innerHTML = state.goals.map(function (g) {
     var saved = bal.goalSaved[g.id] || 0;
     var pct = g.target > 0 ? Math.min(100, Math.round(saved / g.target * 100)) : 0;
     return '<div class="item" style="display:block" data-goal="' + g.id + '"><div class="row-between"><div class="title">' + esc(g.name) + '</div>' +
-      '<div class="amt">' + money(saved) + ' <span class="muted-note">/ ' + money(g.target) + '</span></div></div>' +
+      '<div class="amt">' + money(saved, entityCurrency(g)) + ' <span class="muted-note">/ ' + money(g.target, entityCurrency(g)) + '</span></div></div>' +
       '<div class="progress"><div style="width:' + pct + '%"></div></div>' +
       '<div class="sub" style="margin-top:6px">Target ' + esc(g.targetDate) + ' · ' + pct + '%</div>' +
       '<div style="margin-top:8px;display:flex;gap:6px;justify-content:flex-end">' +
@@ -857,18 +1160,18 @@ function showRoadmap(goalId, bal, keep) {
   $('roadmapTitle').textContent = 'Roadmap — ' + g.name;
   var html = '';
   if (rm.done) {
-    html = '<p>🎉 Goal reached! Saved ' + money(saved) + ' of ' + money(g.target) + '.</p>';
+    html = '<p>🎉 Goal reached! Saved ' + money(saved, entityCurrency(g)) + ' of ' + money(g.target, entityCurrency(g)) + '.</p>';
   } else if (rm.overdue) {
-    html = '<p><strong>' + money(rm.remaining) + '</strong> still needed — the target date has passed. Pick a new date or adjust the target.</p>';
+    html = '<p><strong>' + money(rm.remaining, entityCurrency(g)) + '</strong> still needed — the target date has passed. Pick a new date or adjust the target.</p>';
   } else {
-    html = '<div class="kv"><span class="k">Remaining</span><span><strong>' + money(rm.remaining) + '</strong></span></div>' +
+    html = '<div class="kv"><span class="k">Remaining</span><span><strong>' + money(rm.remaining, entityCurrency(g)) + '</strong></span></div>' +
       '<div class="kv"><span class="k">Days left</span><span>' + rm.daysLeft + '</span></div>' +
-      '<div class="kv"><span class="k">Per day</span><span>' + money(rm.perDay) + '</span></div>' +
-      '<div class="kv"><span class="k">Per week</span><span>' + money(rm.perWeek) + '</span></div>' +
-      '<div class="kv"><span class="k">Per month</span><span>' + money(rm.perMonth) + '</span></div>' +
+      '<div class="kv"><span class="k">Per day</span><span>' + money(rm.perDay, entityCurrency(g)) + '</span></div>' +
+      '<div class="kv"><span class="k">Per week</span><span>' + money(rm.perWeek, entityCurrency(g)) + '</span></div>' +
+      '<div class="kv"><span class="k">Per month</span><span>' + money(rm.perMonth, entityCurrency(g)) + '</span></div>' +
       '<h3 style="margin:14px 0 4px;font-size:14px">Milestones</h3>' +
       '<table class="roadmap-table"><tr><th>By</th><th>Saved target</th></tr>' +
-      rm.milestones.map(function (m) { return '<tr><td>' + esc(m.date) + '</td><td>' + money(m.target) + '</td></tr>'; }).join('') + '</table>';
+      rm.milestones.map(function (m) { return '<tr><td>' + esc(m.date) + '</td><td>' + money(m.target, entityCurrency(g)) + '</td></tr>'; }).join('') + '</table>';
   }
   $('roadmapBody').innerHTML = html;
   $('roadmapCard').classList.remove('hidden');
@@ -877,6 +1180,11 @@ function showRoadmap(goalId, bal, keep) {
 
 function renderSettings() {
   $('setLeadDays').value = String(state.settings.leadDays);
+  var dc = $('setDefaultCurrency');
+  if (dc) {
+    if (!dc.options.length) fillCurrencySelect(dc);
+    dc.value = state.settings.defaultCurrency || 'USD';
+  }
   document.querySelectorAll('#themeSeg button').forEach(function (b) {
     var on = b.dataset.themeOpt === state.settings.theme;
     b.classList.toggle('on', on);
@@ -893,9 +1201,35 @@ function renderSettings() {
 function openModal(id) { $(id).classList.remove('hidden'); }
 function closeModals() { document.querySelectorAll('.modal').forEach(function (m) { m.classList.add('hidden'); }); }
 
+function fillCurrencySelect(sel) {
+  sel.innerHTML = CURRENCIES.map(function (c) {
+    return '<option value="' + c.code + '">' + c.code + ' — ' + esc(c.name) + '</option>';
+  }).join('');
+}
+function setCurrencySelect(id, value) {
+  var sel = $(id); if (!sel) return;
+  if (!sel.options.length) fillCurrencySelect(sel);
+  sel.value = isValidCurrency(value) ? value : 'USD';
+}
+
 function fillSelect(sel, items, placeholder) {
   sel.innerHTML = (placeholder ? '<option value="" disabled selected>' + esc(placeholder) + '</option>' : '') +
     items.map(function (it) { return '<option value="' + esc(it.id) + '">' + esc(it.name) + '</option>'; }).join('');
+}
+
+function updateTxCurrencyNote() {
+  var note = $('txCurrencyNote'); if (!note) return;
+  var kind = $('txKind').value;
+  var cur = null;
+  if (kind === 'income') cur = entityCurrency(state.accounts.find(function (a) { return a.id === $('txAccount').value; }));
+  else if (kind === 'expense') {
+    var m = $('txMethod').value || '';
+    cur = m.slice(0, 2) === 'c:' ? entityCurrency(state.cards.find(function (c) { return c.id === m.slice(2); }))
+      : entityCurrency(state.accounts.find(function (a) { return a.id === m.slice(2); }));
+  } else if (kind === 'cardpayment') cur = entityCurrency(state.cards.find(function (c) { return c.id === $('txCard').value; }));
+  else if (kind === 'saving') cur = entityCurrency(state.goals.find(function (g) { return g.id === $('txGoal').value; }));
+  var c = currencyOf(cur || state.settings.defaultCurrency || 'USD');
+  note.textContent = 'Amounts are in ' + c.code + ' (' + c.name + '). Currencies are kept separate — no conversion.';
 }
 
 function syncTxForm() {
@@ -911,10 +1245,11 @@ function syncTxForm() {
   var cats = kind === 'income' ? INCOME_CATS : EXPENSE_CATS;
   cat.innerHTML = cats.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
   if (kind === 'expense') {
-    var opts = state.accounts.map(function (a) { return { id: 'a:' + a.id, name: a.name + ' (bank)' }; })
-      .concat(state.cards.map(function (c) { return { id: 'c:' + c.id, name: c.name + ' (card)' }; }));
+    var opts = state.accounts.map(function (a) { return { id: 'a:' + a.id, name: a.name + ' (bank, ' + entityCurrency(a) + ')' }; })
+      .concat(state.cards.map(function (c) { return { id: 'c:' + c.id, name: c.name + ' (card, ' + entityCurrency(c) + ')' }; }));
     $('txMethod').innerHTML = opts.map(function (o) { return '<option value="' + esc(o.id) + '">' + esc(o.name) + '</option>'; }).join('') || '<option value="" disabled>Add an account or card first</option>';
   }
+  updateTxCurrencyNote();
 }
 
 function openTxModal(id, presetKind, preset) {
@@ -963,9 +1298,15 @@ function readTxForm() {
   } else if (kind === 'cardpayment') {
     if (!$('txAccount').value || !$('txCard').value) throw new Error('Choose an account and a card.');
     base.accountId = $('txAccount').value; base.cardId = $('txCard').value;
+    var accCur = entityCurrency(state.accounts.find(function (a) { return a.id === base.accountId; }));
+    var cardCur = entityCurrency(state.cards.find(function (c) { return c.id === base.cardId; }));
+    if (accCur !== cardCur) throw new Error('That account is ' + accCur + ' but the card is ' + cardCur + '. Currencies are kept separate — pay the card from a ' + cardCur + ' account.');
   } else if (kind === 'saving') {
     if (!$('txAccount').value || !$('txGoal').value) throw new Error('Choose an account and a goal.');
     base.accountId = $('txAccount').value; base.goalId = $('txGoal').value;
+    var sAccCur = entityCurrency(state.accounts.find(function (a) { return a.id === base.accountId; }));
+    var goalCur = entityCurrency(state.goals.find(function (g) { return g.id === base.goalId; }));
+    if (sAccCur !== goalCur) throw new Error('That account is ' + sAccCur + ' but the goal is ' + goalCur + '. Currencies are kept separate — use a ' + goalCur + ' account.');
   }
   return base;
 }
@@ -980,6 +1321,7 @@ function openCardModal(id) {
   $('cardLimit').value = c && c.limit ? c.limit : '';
   $('cardMinPay').value = c && c.minPayment ? c.minPayment : '';
   $('cardBalance').value = c ? (c.openingBalance || 0) : 0;
+  setCurrencySelect('cardCurrency', c ? entityCurrency(c) : state.settings.defaultCurrency);
   var sel = $('cardIssuer');
   var seen = {}, order = [];
   BANKS.forEach(function (b) { if (!seen[b.group]) { seen[b.group] = []; order.push(b.group); } seen[b.group].push(b); });
@@ -1001,8 +1343,23 @@ function openAccountModal(id) {
   $('acctId').value = a ? a.id : '';
   $('acctName').value = a ? a.name : '';
   $('acctBalance').value = a ? (a.openingBalance || 0) : 0;
+  setCurrencySelect('acctCurrency', a ? entityCurrency(a) : state.settings.defaultCurrency);
   $('acctDelete').classList.toggle('hidden', !a);
   openModal('modalAccount');
+}
+
+function openInvestmentModal(id) {
+  var inv = id ? (state.investments || []).find(function (x) { return x.id === id; }) : null;
+  $('invModalTitle').textContent = inv ? 'Edit investment' : 'Add investment';
+  $('invId').value = inv ? inv.id : '';
+  $('invName').value = inv ? inv.name : '';
+  $('invType').value = inv && INVESTMENT_TYPES.indexOf(inv.type) >= 0 ? inv.type : 'Other';
+  $('invContributed').value = inv ? (inv.contributed || 0) : 0;
+  $('invCurrentValue').value = inv ? (inv.currentValue || 0) : 0;
+  $('invNote').value = inv ? (inv.note || '') : '';
+  setCurrencySelect('invCurrency', inv ? entityCurrency(inv) : state.settings.defaultCurrency);
+  $('invDelete').classList.toggle('hidden', !inv);
+  openModal('modalInvestment');
 }
 
 function openGoalModal(id) {
@@ -1013,6 +1370,7 @@ function openGoalModal(id) {
   $('goalTarget').value = g ? g.target : '';
   $('goalDate').value = g ? g.targetDate : '';
   $('goalSaved').value = g ? (g.initialSaved || 0) : 0;
+  setCurrencySelect('goalCurrency', g ? entityCurrency(g) : state.settings.defaultCurrency);
   $('goalDelete').classList.toggle('hidden', !g);
   openModal('modalGoal');
 }
@@ -1212,12 +1570,13 @@ function driveMaybeAutoBackup() {
 /* ---------------- init (DOM only) ---------------- */
 function init() {
   state = loadState();
+  setBalanceHidden(true); // balances open hidden; the eye toggle reveals them
   applyTheme();
   driveHandleAuthReturn();
   try {
     var mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
     if (mq && mq.addEventListener) mq.addEventListener('change', function () {
-      if (state.settings.theme === 'system') applyTheme();
+      if (state.settings.theme === 'system') { applyTheme(); render(); }
     });
   } catch (e) {}
 
@@ -1226,6 +1585,23 @@ function init() {
       state.settings.theme = b.dataset.themeOpt;
       applyTheme(); saveAndRender('Appearance updated.');
     });
+  });
+  var themeToggle = $('btnThemeToggle');
+  if (themeToggle) themeToggle.addEventListener('click', toggleTheme);
+  var balToggle = $('btnBalanceToggle');
+  if (balToggle) balToggle.addEventListener('click', toggleBalanceVisibility);
+  var bcEl = $('balanceCarousel');
+  if (bcEl) bcEl.addEventListener('scroll', function () {
+    var i = Math.max(0, Math.round(bcEl.scrollLeft / Math.max(1, bcEl.clientWidth)));
+    if (i !== ui.carouselIndex) {
+      ui.carouselIndex = i;
+      document.querySelectorAll('#balanceDots .cdot').forEach(function (d, j) { d.classList.toggle('on', j === i); });
+    }
+  });
+  var dotsEl = $('balanceDots');
+  if (dotsEl) dotsEl.addEventListener('click', function (e) {
+    var btn = e.target && e.target.closest ? e.target.closest('[data-slide]') : null;
+    if (btn && bcEl) bcEl.scrollTo({ left: bcEl.clientWidth * parseInt(btn.dataset.slide, 10), behavior: 'smooth' });
   });
   $('cardIssuer').addEventListener('change', function () {
     var bk = bankOf($('cardIssuer').value);
@@ -1239,7 +1615,7 @@ function init() {
   document.querySelectorAll('.tabbar button').forEach(function (b) {
     b.addEventListener('click', function () { showTab(b.dataset.tab); });
   });
-  document.querySelectorAll('.seg button').forEach(function (b) {
+  document.querySelectorAll('.period-bar .seg button').forEach(function (b) {
     b.addEventListener('click', function () { ui.periodView = b.dataset.view; ui.periodRef = todayStr(); render(); });
   });
   $('periodPrev').addEventListener('click', function () { shiftPeriod(-1); });
@@ -1250,6 +1626,7 @@ function init() {
   $('btnAddCard').addEventListener('click', function () { openCardModal(null); });
   $('btnAddAccount').addEventListener('click', function () { openAccountModal(null); });
   $('btnAddGoal').addEventListener('click', function () { openGoalModal(null); });
+  $('btnAddInvestment').addEventListener('click', function () { openInvestmentModal(null); });
   document.querySelectorAll('[data-close]').forEach(function (b) { b.addEventListener('click', closeModals); });
   document.querySelectorAll('.modal').forEach(function (m) {
     m.addEventListener('click', function (e) { if (e.target === m) closeModals(); });
@@ -1278,6 +1655,7 @@ function init() {
     if (!(apr >= 0 && apr <= 60)) { toast('Enter a valid APR.'); return; }
     var c = {
       id: $('cardId').value || uid(), name: $('cardName').value.trim(), apr: round2(apr), dueDay: dueDay,
+      currency: isValidCurrency($('cardCurrency').value) ? $('cardCurrency').value : 'USD',
       bankId: $('cardIssuer').value || 'generic',
       limit: round2(parseFloat($('cardLimit').value) || 0) || null,
       minPayment: round2(parseFloat($('cardMinPay').value) || 0) || null,
@@ -1297,6 +1675,7 @@ function init() {
   $('acctForm').addEventListener('submit', function (e) {
     e.preventDefault();
     var a = { id: $('acctId').value || uid(), name: $('acctName').value.trim(),
+      currency: isValidCurrency($('acctCurrency').value) ? $('acctCurrency').value : 'USD',
       openingBalance: round2(parseFloat($('acctBalance').value) || 0) };
     if (!a.name) { toast('Name the account.'); return; }
     var i = state.accounts.findIndex(function (x) { return x.id === a.id; });
@@ -1309,9 +1688,31 @@ function init() {
     closeModals(); saveAndRender('Account deleted.');
   });
 
+  $('invForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var inv = { id: $('invId').value || uid(), name: $('invName').value.trim(),
+      currency: isValidCurrency($('invCurrency').value) ? $('invCurrency').value : 'USD',
+      type: INVESTMENT_TYPES.indexOf($('invType').value) >= 0 ? $('invType').value : 'Other',
+      contributed: round2(parseFloat($('invContributed').value) || 0),
+      currentValue: round2(parseFloat($('invCurrentValue').value) || 0),
+      note: $('invNote').value.trim() };
+    if (!inv.name) { toast('Name the investment.'); return; }
+    if (inv.contributed < 0 || inv.currentValue < 0) { toast('Values cannot be negative.'); return; }
+    if (!state.investments) state.investments = [];
+    var i = state.investments.findIndex(function (x) { return x.id === inv.id; });
+    if (i >= 0) state.investments[i] = Object.assign(state.investments[i], inv); else state.investments.push(inv);
+    closeModals(); saveAndRender('Investment saved — total balance updated.');
+  });
+  $('invDelete').addEventListener('click', function () {
+    var id = $('invId').value;
+    state.investments = (state.investments || []).filter(function (x) { return x.id !== id; });
+    closeModals(); saveAndRender('Investment deleted — total balance updated.');
+  });
+
   $('goalForm').addEventListener('submit', function (e) {
     e.preventDefault();
     var g = { id: $('goalId').value || uid(), name: $('goalName').value.trim(),
+      currency: isValidCurrency($('goalCurrency').value) ? $('goalCurrency').value : 'USD',
       target: round2(parseFloat($('goalTarget').value) || 0), targetDate: $('goalDate').value,
       initialSaved: round2(parseFloat($('goalSaved').value) || 0) };
     if (!g.name || !(g.target > 0) || !g.targetDate) { toast('Fill in name, target and date.'); return; }
@@ -1327,6 +1728,15 @@ function init() {
     closeModals(); saveAndRender('Goal deleted.');
   });
 
+  $('chartCurrency').addEventListener('change', function () { ui.chartCurrency = $('chartCurrency').value; render(); });
+  ['txAccount', 'txMethod', 'txCard', 'txGoal'].forEach(function (id) {
+    $(id).addEventListener('change', updateTxCurrencyNote);
+  });
+  $('setDefaultCurrency').addEventListener('change', function () {
+    var v = $('setDefaultCurrency').value;
+    state.settings.defaultCurrency = isValidCurrency(v) ? v : 'USD';
+    saveAndRender('Default currency set to ' + state.settings.defaultCurrency + '.');
+  });
   $('setLeadDays').addEventListener('change', function () {
     state.settings.leadDays = parseInt($('setLeadDays').value, 10) === 2 ? 2 : 3;
     saveAndRender('Payment plan updated.');
@@ -1338,6 +1748,7 @@ function init() {
       if (kind === 'transactions') { csv = txCSV(state); name = 'transactions.csv'; }
       else if (kind === 'accounts') { csv = accountsCSV(state); name = 'accounts.csv'; }
       else if (kind === 'cards') { csv = cardsCSV(state); name = 'cards.csv'; }
+      else if (kind === 'investments') { csv = investmentsCSV(state); name = 'investments.csv'; }
       else { csv = goalsCSV(state); name = 'goals.csv'; }
       download(name, csv, 'text/csv;charset=utf-8');
       toast('Exported ' + name);
@@ -1421,7 +1832,14 @@ if (typeof window !== 'undefined') {
     nextDueDate: nextDueDate, cardPlan: cardPlan, savingsRoadmap: savingsRoadmap,
     dueReminders: dueReminders, validateBackup: validateBackup,
     csvCell: csvCell, toCSV: toCSV, txCSV: txCSV, accountsCSV: accountsCSV,
-    cardsCSV: cardsCSV, goalsCSV: goalsCSV,
+    cardsCSV: cardsCSV, goalsCSV: goalsCSV, investmentsCSV: investmentsCSV,
+    investmentsTotal: investmentsTotal, investmentsContributed: investmentsContributed,
+    investmentGain: investmentGain, accountsTotal: accountsTotal, totalBalance: totalBalance,
+    INVESTMENT_TYPES: INVESTMENT_TYPES,
+    CURRENCIES: CURRENCIES, currencyOf: currencyOf, isValidCurrency: isValidCurrency,
+    entityCurrency: entityCurrency, txCurrency: txCurrency, totalsByCurrency: totalsByCurrency,
+    currenciesInUse: currenciesInUse, summarizeByCurrency: summarizeByCurrency,
+    setBalanceHidden: setBalanceHidden, isBalanceHidden: isBalanceHidden,
     money: money, parseDate: parseDate, fmtDate: fmtDate, addDays: addDays,
     addDaysStr: addDaysStr, round2: round2, uid: uid, resolveTheme: resolveTheme,
     BANKS: BANKS, bankOf: bankOf, dueDatesInMonth: dueDatesInMonth,

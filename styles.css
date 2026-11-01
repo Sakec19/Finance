@@ -135,6 +135,29 @@ main { max-width: 640px; margin: 0 auto; padding: 14px 14px 20px; }
   background: var(--accent-soft); color: var(--accent-ink); margin-top: 4px;
 }
 .pill.urgent { background: var(--warn-soft); color: var(--warn); font-weight: 700; }
+.pill.loss { background: var(--danger-soft); color: var(--danger); }
+/* ---- multi-currency ---- */
+.hb-value.multi { font-size: 13px; line-height: 1.35; }
+.hb-line { display: block; white-space: nowrap; }
+.cur-head { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 4px 0 6px; }
+.cur-block + .cur-block { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 10px; }
+.inline-select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--input-bg); color: var(--ink); font-size: 13px; }
+/* ---- opening balance carousel (one country per slide, swipe left) ---- */
+.balance-carousel { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: none; margin: 2px -16px 0; padding: 2px 16px 0; }
+.balance-carousel::-webkit-scrollbar { display: none; }
+.balance-slide { flex: 0 0 100%; scroll-snap-align: start; padding: 4px 2px 2px; }
+.bs-top { display: flex; align-items: center; gap: 8px; }
+.bs-flag { font-size: 26px; line-height: 1; }
+.bs-country { font-weight: 700; font-size: 16px; }
+.bs-code { margin-left: auto; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .05em; }
+.bs-label { margin-top: 12px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.bs-value { font-size: 32px; font-weight: 800; margin: 2px 0 10px; }
+.bs-rows { display: flex; gap: 28px; font-size: 12px; color: var(--muted); }
+.bs-rows strong { color: var(--ink); font-size: 14px; }
+.bs-meta { margin-top: 10px; color: var(--muted); font-size: 12px; }
+.carousel-dots { display: flex; gap: 6px; justify-content: center; margin-top: 10px; }
+.cdot { width: 8px; height: 8px; border-radius: 50%; border: 0; background: var(--line); padding: 0; cursor: pointer; }
+.cdot.on { background: var(--accent); }
 .progress { height: 8px; background: var(--surface-soft); border-radius: 999px; overflow: hidden; margin-top: 8px; }
 .progress > div { height: 100%; background: var(--accent); border-radius: 999px; }
 .tabbar {
