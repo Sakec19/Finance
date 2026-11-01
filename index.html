@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>MintNomad</title>
 <meta name="description" content="A calm, local-first personal finance tracker. Works offline.">
-<meta name="theme-color" id="metaThemeColor" content="#5F7A61">
+<meta name="theme-color" id="metaThemeColor" content="#0E7C6B">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -26,8 +26,8 @@ try {
 </script>
 <style>
 /* Paint the correct background before styles.css loads — no light flash in dark mode. */
-html[data-theme="dark"] { background: #1D1B17; }
-html[data-theme="light"] { background: #FAF7F1; }
+html[data-theme="dark"] { background: #0E1B17; }
+html[data-theme="light"] { background: #F7F6F0; }
 </style>
 </head>
 <body>
@@ -53,45 +53,57 @@ html[data-theme="light"] { background: #FAF7F1; }
 <main id="main">
   <!-- OVERVIEW -->
   <section id="view-overview" class="view active" aria-label="Overview">
+    <div class="country-head">
+      <h2>Balances by country</h2>
+      <span class="muted-note hidden" id="balanceHint">Swipe for more countries →</span>
+    </div>
+    <div class="balance-carousel" id="balanceCarousel"></div>
+    <div class="carousel-dots" id="balanceDots"></div>
+    <p class="hint center-hint">Balances open hidden — tap 👁 in the header to view them. Tap a country to see its snapshot below. Only countries where you have bank accounts or investments appear here — one per currency, always kept separate, never converted or added together.</p>
+
+    <div class="card total-band">
+      <div class="tb-label" id="selTotalLabel">Total balance</div>
+      <div class="tb-value" id="selTotalValue">$0.00</div>
+      <div class="tb-split" id="selTotalSplit"></div>
+    </div>
+
     <div class="card">
       <div class="row-between">
-        <h2>Balances by country</h2>
-        <span class="muted-note hidden" id="balanceHint">Swipe left for more countries →</span>
-      </div>
-      <div class="balance-carousel" id="balanceCarousel"></div>
-      <div class="carousel-dots" id="balanceDots"></div>
-      <p class="hint">Balances open hidden — tap 👁 in the header to view them. Only countries where you have bank accounts or investments appear here, one per currency, always kept separate.</p>
-    </div>
-    <div class="card">
-      <div class="period-bar">
-        <button id="periodPrev" class="icon-btn" aria-label="Previous period">‹</button>
-        <div class="seg" role="tablist" aria-label="Period">
-          <button data-view="daily" role="tab" aria-selected="false">Daily</button>
-          <button data-view="weekly" role="tab" aria-selected="false">Weekly</button>
-          <button data-view="monthly" role="tab" aria-selected="true" class="on">Monthly</button>
+        <div>
+          <h2 class="snap-h">Financial snapshot</h2>
+          <div class="snap-sub" id="periodLabel"></div>
         </div>
-        <button id="periodNext" class="icon-btn" aria-label="Next period">›</button>
+        <div class="period-controls">
+          <button id="periodPrev" class="icon-btn small-btn" aria-label="Previous period">‹</button>
+          <select id="periodSelect" class="inline-select" aria-label="Period">
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly" selected>Monthly</option>
+          </select>
+          <button id="periodNext" class="icon-btn small-btn" aria-label="Next period">›</button>
+        </div>
       </div>
-      <div class="period-label" id="periodLabel"></div>
-      <div id="periodTotals"></div>
+      <div class="snap-grid" id="snapshotTiles"></div>
     </div>
-    <div class="card">
-      <h2>Balance breakdown</h2>
-      <div id="balanceBreakdown"></div>
-      <p class="hint">Total balance = bank accounts + investments, shown separately for each currency — currencies are never converted or added together. Credit card debt is tracked separately in Cards.</p>
-    </div>
+
     <div class="card">
       <div class="row-between">
         <h2>Spending by category</h2>
-        <select id="chartCurrency" class="inline-select hidden" aria-label="Chart currency"></select>
+        <span class="pill">Expenses</span>
       </div>
+      <div id="catEmpty" class="empty hidden">Add expenses to see your spending breakdown.</div>
       <canvas id="catChart" height="180" aria-label="Bar chart of spending by category"></canvas>
       <div id="catLegend" class="legend"></div>
     </div>
+
     <div class="card">
-      <h2>Upcoming payments</h2>
+      <div class="row-between">
+        <h2>Upcoming checklist</h2>
+        <span class="pill">Plan ahead</span>
+      </div>
       <div id="upcomingList" class="stack"></div>
     </div>
+
     <div class="card">
       <h2>Savings pace</h2>
       <div id="savingsPace" class="stack"></div>

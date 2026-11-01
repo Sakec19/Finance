@@ -21,7 +21,7 @@ function clampDay(y, m, day) { return Math.min(day, new Date(y, m + 1, 0).getDat
    added together — every total in the app is per currency. */
 var CURRENCIES = [
   { code: 'USD', name: 'US Dollar', symbol: '$', decimals: 2, country: 'United States', flag: '🇺🇸' },
-  { code: 'INR', name: 'Indian Rupee', symbol: '\u20B9', decimals: 2, country: 'India', flag: '🇮🇳' },
+  { code: 'INR', name: 'Indian Rupee', symbol: '\u20B9', decimals: 2, grouping: 'in', country: 'India', flag: '🇮🇳' },
   { code: 'EUR', name: 'Euro', symbol: '\u20AC', decimals: 2, country: 'Eurozone', flag: '🇪🇺' },
   { code: 'GBP', name: 'British Pound', symbol: '\u00A3', decimals: 2, country: 'United Kingdom', flag: '🇬🇧' },
   { code: 'AED', name: 'UAE Dirham', symbol: 'AED ', decimals: 2, country: 'United Arab Emirates', flag: '🇦🇪' },
@@ -31,7 +31,7 @@ var CURRENCIES = [
   { code: 'JPY', name: 'Japanese Yen', symbol: '\u00A5', decimals: 0, country: 'Japan', flag: '🇯🇵' },
   { code: 'CNY', name: 'Chinese Yuan', symbol: '\u00A5', decimals: 2, country: 'China', flag: '🇨🇳' },
   { code: 'CHF', name: 'Swiss Franc', symbol: 'CHF ', decimals: 2, country: 'Switzerland', flag: '🇨🇭' },
-  { code: 'PKR', name: 'Pakistani Rupee', symbol: 'Rs ', decimals: 2, country: 'Pakistan', flag: '🇵🇰' }
+  { code: 'PKR', name: 'Pakistani Rupee', symbol: 'Rs ', decimals: 2, grouping: 'in', country: 'Pakistan', flag: '🇵🇰' }
 ];
 function currencyOf(code) {
   for (var i = 0; i < CURRENCIES.length; i++) if (CURRENCIES[i].code === code) return CURRENCIES[i];
@@ -47,13 +47,29 @@ function entityCurrency(entity) {
 var balanceHidden = false;
 function setBalanceHidden(v) { balanceHidden = !!v; }
 function isBalanceHidden() { return balanceHidden; }
+/* Digit grouping follows each currency's home convention:
+   western xxx,xxx,xxx for most currencies; the Indian system
+   xx,xx,xxx (thousand, then lakh/crore pairs) for currencies whose
+   registry entry sets grouping: 'in' (INR, PKR). */
+function groupThousands(intStr) {
+  return intStr.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+function groupIndian(intStr) {
+  if (intStr.length <= 3) return intStr;
+  var tail = intStr.slice(-3), head = intStr.slice(0, -3);
+  return head.replace(/\B(?=(\d{2})+(?!\d))/g, ',') + ',' + tail;
+}
 function money(n, cur) {
   var c = currencyOf(cur || 'USD');
   if (balanceHidden) return c.symbol + '\u2022\u2022\u2022\u2022\u2022\u2022';
   n = +n || 0;
   var sign = n < 0 ? '-' : '';
   var fixed = Math.abs(n).toFixed(c.decimals);
-  return sign + c.symbol + fixed.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  var dot = fixed.indexOf('.');
+  var intPart = dot >= 0 ? fixed.slice(0, dot) : fixed;
+  var fracPart = dot >= 0 ? fixed.slice(dot) : '';
+  var grouped = c.grouping === 'in' ? groupIndian(intPart) : groupThousands(intPart);
+  return sign + c.symbol + grouped + fracPart;
 }
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -711,7 +727,7 @@ function applyTheme() {
   try {
     document.documentElement.dataset.theme = t;
     var meta = document.getElementById('metaThemeColor') || document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', t === 'dark' ? '#1D1B17' : '#5F7A61');
+    if (meta) meta.setAttribute('content', t === 'dark' ? '#0E1B17' : '#0E7C6B');
     var toggle = document.getElementById('btnThemeToggle');
     if (toggle) {
       toggle.textContent = t === 'dark' ? '☀️' : '🌙';
@@ -740,10 +756,10 @@ function download(name, content, mime) {
 
 /* ---------------- app state + rendering ---------------- */
 var state = null;
-var ui = { tab: 'overview', periodView: 'monthly', periodRef: todayStr(), activityFilter: 'all', openGoal: null, calRef: todayStr(), calDay: null, chartCurrency: null, carouselIndex: 0 };
+var ui = { tab: 'overview', periodView: 'monthly', periodRef: todayStr(), activityFilter: 'all', openGoal: null, calRef: todayStr(), calDay: null, chartCurrency: null, carouselIndex: 0, selectedCurrency: null };
 var INCOME_CATS = ['Paycheck', 'Freelance', 'Interest', 'Gift', 'Other'];
 var EXPENSE_CATS = ['Groceries', 'Dining', 'Transport', 'Housing', 'Utilities', 'Health', 'Shopping', 'Entertainment', 'Travel', 'Fees', 'Other'];
-var CHART_COLORS = ['#5F7A61', '#7FA88F', '#A8BFA0', '#D9C27E', '#C98F5F', '#B3541E', '#8A8375', '#4E6E8E'];
+var CHART_COLORS = ['#0E7C6B', '#35B06F', '#E3B341', '#E07856', '#4E7FA6', '#8A6FD1', '#C2547A', '#7FA88F'];
 
 function $(id) { return document.getElementById(id); }
 function toast(msg) {
@@ -816,33 +832,45 @@ function toggleBalanceVisibility() {
   render();
 }
 
-/* Opening view: one swipeable slide per country that actually has balance
-   data (a bank account or an investment). Swipe/scroll left for the next
-   country. Balances render through money(), so the privacy toggle masks
-   every figure here automatically. */
+/* Opening view: one big swipeable panel per country that actually has
+   balance data (a bank account or an investment); the next country peeks
+   in from the right. The visible / tapped country is the SELECTED one —
+   the whole snapshot below follows it. Balances render through money(),
+   so the privacy toggle masks every figure here automatically. */
+function balanceCodes(bal) {
+  var codes = Object.keys(totalsByCurrency(state, bal));
+  if (!codes.length) codes = [state.settings.defaultCurrency || 'USD'];
+  return codes;
+}
+function selectedCurrency(bal) {
+  var codes = balanceCodes(bal);
+  if (!ui.selectedCurrency || codes.indexOf(ui.selectedCurrency) < 0) {
+    ui.selectedCurrency = codes[Math.min(ui.carouselIndex || 0, codes.length - 1)];
+  }
+  return ui.selectedCurrency;
+}
 function renderBalanceCarousel(bal) {
   var wrap = $('balanceCarousel'); if (!wrap) return;
   var byCur = totalsByCurrency(state, bal);
-  var codes = Object.keys(byCur);
-  if (!codes.length) codes = [state.settings.defaultCurrency || 'USD'];
-  wrap.innerHTML = codes.map(function (code) {
+  var codes = balanceCodes(bal);
+  var sel = selectedCurrency(bal);
+  wrap.innerHTML = codes.map(function (code, idx) {
     var t = byCur[code] || { accounts: 0, investments: 0, total: 0 };
     var c = currencyOf(code);
     var nAcct = state.accounts.filter(function (a) { return entityCurrency(a) === code; }).length;
     var nInv = (state.investments || []).filter(function (inv) { return entityCurrency(inv) === code; }).length;
-    return '<div class="balance-slide" data-cur="' + esc(code) + '">' +
+    return '<div class="balance-slide g' + (idx % 6) + (code === sel ? ' sel' : '') + '" data-cur="' + esc(code) + '" role="button" tabindex="0" aria-label="Show ' + esc(c.country) + ' snapshot">' +
       '<div class="bs-top"><span class="bs-flag">' + c.flag + '</span><span class="bs-country">' + esc(c.country) + '</span><span class="bs-code">' + esc(code) + '</span></div>' +
-      '<div class="bs-label">Total balance</div>' +
+      '<div><div class="bs-label">Total balance</div>' +
       '<div class="bs-value">' + money(t.total, code) + '</div>' +
-      '<div class="bs-rows"><span>Bank accounts<br><strong>' + money(t.accounts, code) + '</strong></span>' +
-      '<span>Investments<br><strong>' + money(t.investments, code) + '</strong></span></div>' +
-      '<div class="bs-meta">' + nAcct + (nAcct === 1 ? ' account' : ' accounts') + ' \u00B7 ' + nInv + (nInv === 1 ? ' holding' : ' holdings') + '</div>' +
+      '<div class="bs-split">Bank accounts <strong>' + money(t.accounts, code) + '</strong> \u00B7 Investments <strong>' + money(t.investments, code) + '</strong></div>' +
+      '<div class="bs-meta">' + nAcct + (nAcct === 1 ? ' account' : ' accounts') + ' \u00B7 ' + nInv + (nInv === 1 ? ' holding' : ' holdings') + '</div></div>' +
       '</div>';
   }).join('');
   var dots = $('balanceDots');
   if (dots) {
     dots.innerHTML = codes.map(function (code, i) {
-      return '<button class="cdot' + (i === (ui.carouselIndex || 0) ? ' on' : '') + '" data-slide="' + i + '" aria-label="Show ' + esc(code) + ' balance"></button>';
+      return '<button class="cdot' + (code === sel ? ' on' : '') + '" data-slide="' + i + '" aria-label="Show ' + esc(code) + ' balance"></button>';
     }).join('');
   }
   var hint = $('balanceHint');
@@ -878,74 +906,84 @@ function render() {
   renderOverview(bal); renderActivity(bal); renderCards(bal); renderAccounts(bal); renderInvestments(bal); renderGoals(bal); renderCalendar(bal); renderSettings();
 }
 
-function totalsBlockHtml(code, inn, out, net, showHead) {
-  return '<div class="cur-block">' + (showHead ? '<div class="cur-head">' + esc(code) + ' · ' + esc(currencyOf(code).name) + '</div>' : '') +
-    '<div class="totals">' +
-    '<div class="total in"><span class="t-label">In</span><span class="t-value">' + money(inn, code) + '</span></div>' +
-    '<div class="total out"><span class="t-label">Out</span><span class="t-value">' + money(out, code) + '</span></div>' +
-    '<div class="total net"><span class="t-label">Net</span><span class="t-value" style="color:' + (net < 0 ? 'var(--danger)' : 'var(--accent-ink)') + '">' + money(net, code) + '</span></div>' +
-    '</div></div>';
+/* Selected-country overview: everything below the country panels follows
+   the SELECTED country only — its Total Balance band, its Financial
+   snapshot tiles for the chosen period, its spending chart and its
+   upcoming checklist. Currencies are never mixed on this screen. */
+function snapshotTile(label, valueHtml, subHtml, cls) {
+  return '<div class="snap-tile ' + (cls || '') + '"><span class="t-label">' + label + '</span>' + valueHtml + (subHtml || '') + '</div>';
 }
-
 function renderOverview(bal) {
+  var sel = selectedCurrency(bal);
+  var cur = currencyOf(sel);
+  var t = totalsByCurrency(state, bal)[sel] || { accounts: 0, investments: 0, total: 0 };
+
+  /* Total Balance band for the selected country */
+  $('selTotalLabel').textContent = 'Total balance \u00B7 ' + cur.country + ' (' + sel + ')';
+  $('selTotalValue').textContent = money(t.total, sel);
+  $('selTotalSplit').innerHTML = 'Bank accounts <strong>' + money(t.accounts, sel) + '</strong> \u00B7 Investments <strong>' + money(t.investments, sel) + '</strong>';
+
+  /* Financial snapshot: Money in / Money out / Net cash flow / Investments */
   var s = summarizeByCurrency(state, ui.periodView, ui.periodRef);
-  $('periodLabel').textContent = s.label;
-  document.querySelectorAll('.period-bar .seg button').forEach(function (b) {
-    var on = b.dataset.view === ui.periodView;
-    b.classList.toggle('on', on); b.setAttribute('aria-selected', on);
-  });
-  var periodCodes = Object.keys(s.currencies);
-  if (!periodCodes.length) periodCodes = currenciesInUse(state);
-  var multi = periodCodes.length > 1 || currenciesInUse(state).length > 1;
-  $('periodTotals').innerHTML = periodCodes.map(function (code) {
-    var c = s.currencies[code] || { inn: 0, out: 0, net: 0 };
-    return totalsBlockHtml(code, c.inn, c.out, c.net, multi);
-  }).join('');
-  var breakdown = $('balanceBreakdown');
-  if (breakdown) {
-    var byCur = totalsByCurrency(state, bal);
-    var bCodes = Object.keys(byCur);
-    if (!bCodes.length) bCodes = [state.settings.defaultCurrency];
-    breakdown.innerHTML = bCodes.map(function (code) {
-      var t = byCur[code] || { accounts: 0, investments: 0, total: 0 };
-      return (bCodes.length > 1 ? '<div class="cur-head">' + esc(code) + ' · ' + esc(currencyOf(code).name) + '</div>' : '') +
-        '<div class="kv"><span class="k">Bank accounts</span><span>' + money(t.accounts, code) + '</span></div>' +
-        '<div class="kv"><span class="k">Investments</span><span>' + money(t.investments, code) + '</span></div>' +
-        '<div class="kv"><span class="k"><strong>Total balance</strong></span><span><strong>' + money(t.total, code) + '</strong></span></div>';
-    }).join('');
+  $('periodLabel').textContent = s.label + ' \u00B7 ' + cur.country;
+  var ps = $('periodSelect'); if (ps) ps.value = ui.periodView;
+  var sc = s.currencies[sel] || { inn: 0, out: 0, net: 0, byCat: {} };
+  var invs = (state.investments || []).filter(function (inv) { return entityCurrency(inv) === sel; });
+  var invVal = 0, invCost = 0;
+  invs.forEach(function (inv) { invVal += (+inv.currentValue || 0); invCost += (+inv.contributed || 0); });
+  var gain = round2(invVal - invCost);
+  var invSub;
+  if (!invs.length) invSub = '<span class="t-sub">No holdings yet</span>';
+  else {
+    invSub = '<span class="t-sub ' + (gain < 0 ? 'neg' : 'pos') + '">' + (gain < 0 ? '\u2212' : '+') + money(Math.abs(gain), sel) +
+      (invCost > 0 ? ' \u00B7 ' + (gain < 0 ? '\u2212' : '+') + Math.abs(gain / invCost * 100).toFixed(1) + '%' : '') + ' all-time</span>';
   }
-  /* Chart: one currency at a time (never mixed) — selector appears only
-     when more than one currency has spending. */
-  var chartCodes = periodCodes.filter(function (code) { return s.currencies[code] && Object.keys(s.currencies[code].byCat).length; });
-  if (!chartCodes.length) chartCodes = periodCodes;
-  if (!ui.chartCurrency || chartCodes.indexOf(ui.chartCurrency) < 0) ui.chartCurrency = chartCodes[0];
-  var chartSel = $('chartCurrency');
-  if (chartSel) {
-    chartSel.innerHTML = chartCodes.map(function (code) { return '<option value="' + esc(code) + '">' + esc(code) + '</option>'; }).join('');
-    chartSel.value = ui.chartCurrency;
-    chartSel.classList.toggle('hidden', chartCodes.length <= 1);
-  }
-  var chartData = (s.currencies[ui.chartCurrency] && s.currencies[ui.chartCurrency].byCat) || {};
-  drawChart($('catChart'), chartData, ui.chartCurrency);
+  $('snapshotTiles').innerHTML =
+    snapshotTile('Money in', '<span class="t-value pos">' + money(sc.inn, sel) + '</span>', null, 'in') +
+    snapshotTile('Money out', '<span class="t-value neg">' + money(sc.out, sel) + '</span>', null, 'out') +
+    snapshotTile('Net cash flow', '<span class="t-value ' + (sc.net < 0 ? 'neg' : 'pos') + '">' + money(sc.net, sel) + '</span>', null, 'net') +
+    snapshotTile('Investments', '<span class="t-value">' + money(invVal, sel) + '</span>', invSub, 'inv');
+
+  /* Spending by category: the selected country's chart for this period */
+  var chartData = sc.byCat || {};
+  var hasSpend = Object.keys(chartData).length > 0;
+  var cvs = $('catChart');
+  if (cvs) cvs.classList.toggle('hidden', !hasSpend);
+  var catEmpty = $('catEmpty');
+  if (catEmpty) catEmpty.classList.toggle('hidden', hasSpend);
+  ui.chartCurrency = sel;
+  if (hasSpend) drawChart(cvs, chartData, sel);
   var keys = Object.keys(chartData).sort(function (a, b) { return chartData[b] - chartData[a]; }).slice(0, 8);
   $('catLegend').innerHTML = keys.map(function (k, i) {
-    return '<span><span class="sw" style="background:' + CHART_COLORS[i % CHART_COLORS.length] + '"></span>' + esc(k) + ' ' + money(chartData[k], ui.chartCurrency) + '</span>';
+    return '<span><span class="sw" style="background:' + CHART_COLORS[i % CHART_COLORS.length] + '"></span>' + esc(k) + ' ' + money(chartData[k], sel) + '</span>';
   }).join('');
 
+  /* Upcoming checklist: this country's card payments due within 14 days,
+     plus its savings goals landing within 30 days. */
   var up = [];
   state.cards.forEach(function (c) {
+    if (entityCurrency(c) !== sel) return;
     var b = bal.cardBal[c.id] || 0; if (b <= 0) return;
     var plan = cardPlan(c, b, state.settings.leadDays, todayStr());
     if (plan.status === 'clear') return;
     plan.payments.forEach(function (p) {
       if (p.date <= addDaysStr(todayStr(), 14)) {
-        up.push('<div class="item"><div class="main"><div class="title">' + esc(c.name) + '</div><div class="sub">' +
-          esc(p.label) + ' · due ' + esc(plan.due) + (plan.status === 'urgent' ? ' <span class="pill urgent">PAY NOW</span>' : '') +
-          '</div></div><div class="amt">' + money(p.amount, entityCurrency(c)) + '</div></div>');
+        up.push('<div class="item check-item"><span class="check-dot">\u25CB</span><div class="main"><div class="title">' + esc(c.name) + '</div><div class="sub">' +
+          esc(p.label) + ' \u00B7 due ' + esc(plan.due) + (plan.status === 'urgent' ? ' <span class="pill urgent">PAY NOW</span>' : '') +
+          '</div></div><div class="amt">' + money(p.amount, sel) + '</div></div>');
       }
     });
   });
-  $('upcomingList').innerHTML = up.length ? up.join('') : '<div class="empty">No card payments due in the next 14 days.</div>';
+  state.goals.forEach(function (g) {
+    if (entityCurrency(g) !== sel) return;
+    var saved = bal.goalSaved[g.id] || 0;
+    var rm = savingsRoadmap(g, saved, todayStr());
+    if (rm.done || rm.overdue || rm.daysLeft > 30) return;
+    up.push('<div class="item check-item"><span class="check-dot">\u25CB</span><div class="main"><div class="title">Save for ' + esc(g.name) + '</div><div class="sub">' +
+      'Target ' + esc(g.targetDate) + ' \u00B7 ' + rm.daysLeft + (rm.daysLeft === 1 ? ' day' : ' days') + ' left \u00B7 ' + money(rm.perDay, sel) + '/day' +
+      '</div></div><div class="amt">' + money(rm.remaining, sel) + ' to go</div></div>');
+  });
+  $('upcomingList').innerHTML = up.length ? up.join('') : '<div class="empty">Your upcoming items will appear here.</div>';
 
   var pace = [];
   state.goals.forEach(function (g) {
@@ -1591,17 +1629,42 @@ function init() {
   var balToggle = $('btnBalanceToggle');
   if (balToggle) balToggle.addEventListener('click', toggleBalanceVisibility);
   var bcEl = $('balanceCarousel');
+  function carouselStep() {
+    if (!bcEl) return 1;
+    var slide = bcEl.querySelector('.balance-slide');
+    return slide ? slide.offsetWidth + 12 : Math.max(1, bcEl.clientWidth);
+  }
+  function selectSlide(i, scroll) {
+    var balNow = recompute(state);
+    var codes = balanceCodes(balNow);
+    if (i < 0 || i >= codes.length) return;
+    ui.carouselIndex = i;
+    ui.selectedCurrency = codes[i];
+    document.querySelectorAll('#balanceCarousel .balance-slide').forEach(function (sEl, j) { sEl.classList.toggle('sel', j === i); });
+    document.querySelectorAll('#balanceDots .cdot').forEach(function (d, j) { d.classList.toggle('on', j === i); });
+    renderOverview(balNow);
+    if (scroll && bcEl && bcEl.scrollTo) { try { bcEl.scrollTo({ left: carouselStep() * i, behavior: 'smooth' }); } catch (e) {} }
+  }
   if (bcEl) bcEl.addEventListener('scroll', function () {
-    var i = Math.max(0, Math.round(bcEl.scrollLeft / Math.max(1, bcEl.clientWidth)));
-    if (i !== ui.carouselIndex) {
-      ui.carouselIndex = i;
-      document.querySelectorAll('#balanceDots .cdot').forEach(function (d, j) { d.classList.toggle('on', j === i); });
-    }
+    var i = Math.max(0, Math.round(bcEl.scrollLeft / carouselStep()));
+    if (i !== ui.carouselIndex) selectSlide(i, false);
+  });
+  if (bcEl) bcEl.addEventListener('click', function (e) {
+    var slide = e.target && e.target.closest ? e.target.closest('.balance-slide') : null;
+    if (!slide) return;
+    selectSlide(balanceCodes(recompute(state)).indexOf(slide.dataset.cur), true);
+  });
+  if (bcEl) bcEl.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    var slide = e.target && e.target.closest ? e.target.closest('.balance-slide') : null;
+    if (!slide) return;
+    e.preventDefault();
+    selectSlide(balanceCodes(recompute(state)).indexOf(slide.dataset.cur), true);
   });
   var dotsEl = $('balanceDots');
   if (dotsEl) dotsEl.addEventListener('click', function (e) {
     var btn = e.target && e.target.closest ? e.target.closest('[data-slide]') : null;
-    if (btn && bcEl) bcEl.scrollTo({ left: bcEl.clientWidth * parseInt(btn.dataset.slide, 10), behavior: 'smooth' });
+    if (btn) selectSlide(parseInt(btn.dataset.slide, 10), true);
   });
   $('cardIssuer').addEventListener('change', function () {
     var bk = bankOf($('cardIssuer').value);
@@ -1615,9 +1678,8 @@ function init() {
   document.querySelectorAll('.tabbar button').forEach(function (b) {
     b.addEventListener('click', function () { showTab(b.dataset.tab); });
   });
-  document.querySelectorAll('.period-bar .seg button').forEach(function (b) {
-    b.addEventListener('click', function () { ui.periodView = b.dataset.view; ui.periodRef = todayStr(); render(); });
-  });
+  var periodSel = $('periodSelect');
+  if (periodSel) periodSel.addEventListener('change', function () { ui.periodView = periodSel.value; ui.periodRef = todayStr(); render(); });
   $('periodPrev').addEventListener('click', function () { shiftPeriod(-1); });
   $('periodNext').addEventListener('click', function () { shiftPeriod(1); });
   $('btnAdd').addEventListener('click', function () { openTxModal(null); });
@@ -1728,7 +1790,6 @@ function init() {
     closeModals(); saveAndRender('Goal deleted.');
   });
 
-  $('chartCurrency').addEventListener('change', function () { ui.chartCurrency = $('chartCurrency').value; render(); });
   ['txAccount', 'txMethod', 'txCard', 'txGoal'].forEach(function (id) {
     $(id).addEventListener('change', updateTxCurrencyNote);
   });

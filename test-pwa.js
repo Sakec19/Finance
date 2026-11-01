@@ -250,6 +250,15 @@ t('currency: money formatting per currency', () => {
   assert.strictEqual(F.money(1234.5), '$1,234.50'); // default USD, unchanged
   assert.strictEqual(F.money(1234.5, 'USD'), '$1,234.50');
   assert.strictEqual(F.money(85000, 'INR'), '₹85,000.00');
+  // Indian digit grouping (xx,xx,xxx) for INR and PKR; western (xxx,xxx,xxx) elsewhere
+  assert.strictEqual(F.money(150000, 'INR'), '₹1,50,000.00');
+  assert.strictEqual(F.money(12345678.9, 'INR'), '₹1,23,45,678.90');
+  assert.strictEqual(F.money(10000000, 'INR'), '₹1,00,00,000.00'); // 1 crore
+  assert.strictEqual(F.money(100000, 'INR'), '₹1,00,000.00'); // 1 lakh
+  assert.strictEqual(F.money(1000, 'INR'), '₹1,000.00');
+  assert.strictEqual(F.money(-2500000, 'PKR'), '-Rs 25,00,000.00');
+  assert.strictEqual(F.money(1234567.89, 'USD'), '$1,234,567.89');
+  assert.strictEqual(F.money(1234567, 'JPY'), '¥1,234,567'); // western, zero decimals
   assert.strictEqual(F.money(1200, 'JPY'), '¥1,200'); // zero decimals
   assert.strictEqual(F.money(-50.5, 'EUR'), '-€50.50');
   assert.strictEqual(F.money(10, 'XXX'), '$10.00'); // unknown falls back to USD
