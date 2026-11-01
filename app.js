@@ -772,14 +772,6 @@ function nameOf(list, id) {
   for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i].name;
   return '—';
 }
-function shiftPeriod(dir) {
-  var d = parseDate(ui.periodRef);
-  if (ui.periodView === 'daily') d = addDays(d, dir);
-  else if (ui.periodView === 'weekly') d = addDays(d, dir * 7);
-  else d = new Date(d.getFullYear(), d.getMonth() + dir, 1);
-  ui.periodRef = fmtDate(d);
-  render();
-}
 function showTab(name) {
   ui.tab = name;
   document.querySelectorAll('.tabbar button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === name); });
@@ -930,43 +922,28 @@ function render() {
 }
 
 /* Selected-country overview: everything below the country panels follows
-   the SELECTED country only — its Total Balance band, its Financial
-   snapshot tiles for the chosen period, its spending chart and its
-   upcoming checklist. Currencies are never mixed on this screen. */
-function snapshotTile(label, valueHtml, subHtml, cls) {
-  return '<div class="snap-tile ' + (cls || '') + '"><span class="t-label">' + label + '</span>' + valueHtml + (subHtml || '') + '</div>';
-}
+   the SELECTED country only — its transaction history, its spending
+   chart and its upcoming checklist. Currencies are never mixed here. */
 function renderOverview(bal) {
   homeReveal = !!ui.countryOpen; /* an opened country shows its values */
   var sel = selectedCurrency(bal);
-  var cur = currencyOf(sel);
-  var t = totalsByCurrency(state, bal)[sel] || { accounts: 0, investments: 0, total: 0 };
 
-  /* Total Balance band for the selected country */
-  $('selTotalLabel').textContent = 'Total balance \u00B7 ' + cur.country + ' (' + sel + ')';
-  $('selTotalValue').textContent = money(t.total, sel);
-  $('selTotalSplit').innerHTML = 'Bank accounts <strong>' + money(t.accounts, sel) + '</strong> \u00B7 Investments <strong>' + money(t.investments, sel) + '</strong>';
-
-  /* Financial snapshot: Money in / Money out / Net cash flow / Investments */
-  var s = summarizeByCurrency(state, ui.periodView, ui.periodRef);
-  $('periodLabel').textContent = s.label + ' \u00B7 ' + cur.country;
-  var ps = $('periodSelect'); if (ps) ps.value = ui.periodView;
+  /* Spending figures for the chart below are the current month's. */
+  var s = summarizeByCurrency(state, 'monthly', todayStr());
   var sc = s.currencies[sel] || { inn: 0, out: 0, net: 0, byCat: {} };
-  var invs = (state.investments || []).filter(function (inv) { return entityCurrency(inv) === sel; });
-  var invVal = 0, invCost = 0;
-  invs.forEach(function (inv) { invVal += (+inv.currentValue || 0); invCost += (+inv.contributed || 0); });
-  var gain = round2(invVal - invCost);
-  var invSub;
-  if (!invs.length) invSub = '<span class="t-sub">No holdings yet</span>';
-  else {
-    invSub = '<span class="t-sub ' + (gain < 0 ? 'neg' : 'pos') + '">' + (gain < 0 ? '\u2212' : '+') + money(Math.abs(gain), sel) +
-      (invCost > 0 ? ' \u00B7 ' + (gain < 0 ? '\u2212' : '+') + Math.abs(gain / invCost * 100).toFixed(1) + '%' : '') + ' all-time</span>';
+
+  /* Transaction history: the selected country's most recent activity,
+     newest first (latest 8; the full list lives in the Activity tab). */
+  var histEl = $('homeTxList');
+  if (histEl) {
+    var hist = state.transactions
+      .filter(function (t) { return txCurrency(state, t) === sel; })
+      .map(function (t, i) { return { t: t, i: i }; })
+      .sort(function (a, b) { if (a.t.date !== b.t.date) return a.t.date < b.t.date ? 1 : -1; return b.i - a.i; })
+      .slice(0, 8)
+      .map(function (x) { return x.t; });
+    histEl.innerHTML = hist.length ? hist.map(txLine).join('') : '<div class="empty">No transactions yet for this country.</div>';
   }
-  $('snapshotTiles').innerHTML =
-    snapshotTile('Money in', '<span class="t-value pos">' + money(sc.inn, sel) + '</span>', null, 'in') +
-    snapshotTile('Money out', '<span class="t-value neg">' + money(sc.out, sel) + '</span>', null, 'out') +
-    snapshotTile('Net cash flow', '<span class="t-value ' + (sc.net < 0 ? 'neg' : 'pos') + '">' + money(sc.net, sel) + '</span>', null, 'net') +
-    snapshotTile('Investments', '<span class="t-value">' + money(invVal, sel) + '</span>', invSub, 'inv');
 
   /* Spending by category: the selected country's chart for this period */
   var chartData = sc.byCat || {};
@@ -1705,6 +1682,13 @@ function init() {
   });
   var backBtn = $('btnCountryBack');
   if (backBtn) backBtn.addEventListener('click', closeCountry);
+  var htx = $('homeTxList');
+  if (htx) htx.addEventListener('click', function (e) {
+    var item = e.target && e.target.closest ? e.target.closest('[data-tx]') : null;
+    if (item) openTxModal(item.dataset.tx);
+  });
+  var txAll = $('btnHomeTxAll');
+  if (txAll) txAll.addEventListener('click', function () { showTab('activity'); });
   var dotsEl = $('balanceDots');
   if (dotsEl) dotsEl.addEventListener('click', function (e) {
     var btn = e.target && e.target.closest ? e.target.closest('[data-slide]') : null;
@@ -1722,10 +1706,6 @@ function init() {
   document.querySelectorAll('.tabbar button').forEach(function (b) {
     b.addEventListener('click', function () { showTab(b.dataset.tab); });
   });
-  var periodSel = $('periodSelect');
-  if (periodSel) periodSel.addEventListener('change', function () { ui.periodView = periodSel.value; ui.periodRef = todayStr(); render(); });
-  $('periodPrev').addEventListener('click', function () { shiftPeriod(-1); });
-  $('periodNext').addEventListener('click', function () { shiftPeriod(1); });
   $('btnAdd').addEventListener('click', function () { openTxModal(null); });
   $('btnSettings').addEventListener('click', function () { showTab('settings'); });
   $('activityFilter').addEventListener('change', function () { ui.activityFilter = $('activityFilter').value; renderActivity(); });

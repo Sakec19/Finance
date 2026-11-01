@@ -66,29 +66,12 @@ html[data-theme="light"] { background: #F7F6F0; }
       <span class="country-open-title" id="countryOpenTitle"></span>
     </div>
 
-    <div class="card total-band">
-      <div class="tb-label" id="selTotalLabel">Total balance</div>
-      <div class="tb-value" id="selTotalValue">$0.00</div>
-      <div class="tb-split" id="selTotalSplit"></div>
-    </div>
-
     <div class="card">
       <div class="row-between">
-        <div>
-          <h2 class="snap-h">Financial snapshot</h2>
-          <div class="snap-sub" id="periodLabel"></div>
-        </div>
-        <div class="period-controls">
-          <button id="periodPrev" class="icon-btn small-btn" aria-label="Previous period">‹</button>
-          <select id="periodSelect" class="inline-select" aria-label="Period">
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
-            <option value="monthly" selected>Monthly</option>
-          </select>
-          <button id="periodNext" class="icon-btn small-btn" aria-label="Next period">›</button>
-        </div>
+        <h2>Transaction history</h2>
+        <button class="pill pill-btn" id="btnHomeTxAll">View all</button>
       </div>
-      <div class="snap-grid" id="snapshotTiles"></div>
+      <div id="homeTxList" class="stack"></div>
     </div>
 
     <div class="card">

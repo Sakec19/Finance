@@ -137,6 +137,7 @@ main { max-width: 640px; margin: 0 auto; padding: 14px 14px 20px; }
   background: var(--accent-soft); color: var(--accent-ink); margin-top: 4px;
 }
 .pill.urgent { background: var(--warn-soft); color: var(--warn); font-weight: 700; }
+.pill-btn { border: 0; cursor: pointer; font-family: inherit; margin-top: 0; }
 .pill.loss { background: var(--danger-soft); color: var(--danger); }
 /* ---- multi-currency ---- */
 .hb-value.multi { font-size: 13px; line-height: 1.35; }
