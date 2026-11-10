@@ -282,3 +282,27 @@ main { max-width: 640px; margin: 0 auto; padding: 14px 14px 20px; }
 .issuer-row select { flex: 1; }
 .issuer-preview { width: 44px; height: 44px; border-radius: 10px; flex-shrink: 0; object-fit: cover; }
 .tabbar button { font-size: 10px; }
+
+/* ---- people: header avatar button + sidebar drawer ---- */
+.app-header .brand { margin-right: auto; }
+.people-btn { background: none; border: 0; padding: 2px; margin-right: 2px; cursor: pointer; border-radius: 50%; flex-shrink: 0; }
+.people-avatar { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; color: #fff; font-weight: 800; font-size: 13px; letter-spacing: .03em; box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 3px 8px rgba(10,35,45,.25); }
+.pav-0 { background: linear-gradient(135deg, #0B3C55, #0E7C6B); }
+.pav-1 { background: linear-gradient(135deg, #0E5941, #35B06F); }
+.pav-2 { background: linear-gradient(135deg, #312E81, #6D5DF0); }
+.pav-3 { background: linear-gradient(135deg, #7C2D4E, #C2547A); }
+.pav-4 { background: linear-gradient(135deg, #8A5A13, #D9A441); }
+.pav-5 { background: linear-gradient(135deg, #1F3A5F, #3E7EA6); }
+.drawer-backdrop { position: fixed; inset: 0; z-index: 34; background: rgba(20, 25, 22, .45); }
+.people-drawer { position: fixed; top: 0; left: 0; bottom: 0; z-index: 35; width: min(308px, 86vw); background: var(--surface); color: var(--ink); padding: 16px; box-shadow: 8px 0 28px rgba(10, 35, 45, .28); overflow-y: auto; }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.drawer-head h2 { margin: 0; font-size: 19px; }
+.people-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.person-row { display: flex; align-items: center; gap: 11px; padding: 10px; border: 1px solid var(--line); border-radius: 14px; cursor: pointer; background: var(--surface); }
+.person-row.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: var(--accent-soft); }
+.person-main { display: flex; flex-direction: column; min-width: 0; margin-right: auto; }
+.person-name { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.person-sub { color: var(--muted); font-size: 12px; }
+.person-check { color: var(--accent); font-weight: 800; }
+.drawer-note { margin-top: 12px; }
+.btn.block { display: block; width: 100%; }

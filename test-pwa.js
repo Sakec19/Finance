@@ -280,6 +280,39 @@ t('currency: legacy data defaults to USD, invalid codes sanitized', () => {
   assert.strictEqual(F.blankState().settings.defaultCurrency, 'USD');
 });
 
+t('people: legacy data migrates onto the default person', () => {
+  const st = F.normalizeState({ transactions: [], cards: [], goals: [], investments: [],
+    accounts: [{ id: 'a1', name: 'Checking', currency: 'USD', openingBalance: 500 }] });
+  assert.strictEqual(st.people.length, 1);
+  assert.strictEqual(st.people[0].name, 'Manan');
+  assert.strictEqual(st.activePersonId, st.people[0].id);
+  assert.strictEqual(st.accounts.length, 1);
+  assert.strictEqual(st.peopleData[st.activePersonId].accounts, st.accounts);
+});
+
+t('people: switching swaps data bundles and keeps them separate', () => {
+  const st = F.blankState();
+  st.accounts.push({ id: 'a1', name: 'Mine', currency: 'USD', openingBalance: 100 });
+  st.people.push({ id: 'p2', name: 'Asha' });
+  st.peopleData.p2 = { transactions: [], accounts: [{ id: 'a9', name: 'Hers', currency: 'INR', openingBalance: 7000 }], cards: [], goals: [], investments: [] };
+  assert.strictEqual(F.setActivePerson(st, 'p2'), true);
+  assert.strictEqual(st.accounts.length, 1);
+  assert.strictEqual(st.accounts[0].name, 'Hers');
+  assert.strictEqual(F.activePerson(st).name, 'Asha');
+  assert.strictEqual(F.personBundle(st, 'person-1').accounts[0].name, 'Mine');
+  assert.strictEqual(F.setActivePerson(st, 'person-1'), true);
+  assert.strictEqual(st.accounts[0].name, 'Mine');
+  assert.strictEqual(F.setActivePerson(st, 'nope'), false);
+  // a normalize round-trip (save + load) preserves both people and the active one
+  const rt = F.normalizeState(JSON.parse(JSON.stringify(st)));
+  assert.strictEqual(rt.people.length, 2);
+  assert.strictEqual(rt.activePersonId, 'person-1');
+  assert.strictEqual(rt.accounts[0].name, 'Mine');
+  assert.strictEqual(rt.peopleData.p2.accounts[0].name, 'Hers');
+  assert.strictEqual(F.personInitials('Asha Rao'), 'AR');
+  assert.strictEqual(F.personInitials('Manan'), 'M');
+});
+
 t('currency: totals stay separate per currency', () => {
   const st = blank();
   st.accounts.push(

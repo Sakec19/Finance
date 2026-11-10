@@ -1,16 +1,484 @@
-<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#174d3b"><script>(function(){var t="system";try{t=localStorage.getItem("fridge-chef-theme")||"system"}catch(e){}var d=t==="dark"||(t!=="light"&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.dataset.theme=d?"dark":"light";if(d)document.querySelector('meta[name="theme-color"]').setAttribute("content","#0e1712")})();</script><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="default"><meta name="apple-mobile-web-app-title" content="Fridge Chef"><meta name="description" content="Your pocket kitchen: cook with what you have, plan meals, and shop smart."><link rel="manifest" href="./manifest.webmanifest"><link rel="apple-touch-icon" href="./icon-192.png"><link rel="stylesheet" href="./style.css"><title>Fridge Chef — Cook smarter</title></head>
-<body><div class="shell"><header class="top"><div class="brand"><div class="logo">🥬</div><div><strong>Fridge Chef</strong><small>Make more with what you have</small></div></div><div class="head-actions"><button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch to dark mode">🌙 Dark</button><span id="connection" class="status">● Ready offline</span></div></header>
-<main>
-<section id="cook" class="view active"><div class="hero slim"><div><span class="eyebrow">YOUR KITCHEN COMPANION</span><h1 id="greeting">What’s cooking today?</h1><p>Turn what’s already in your fridge into something delicious.</p></div><button id="surpriseBtn" class="surprise" type="button">🎲<span>Surprise<br>me</span></button></div>
-<div class="panel collapsible" id="pantryPanel"><button class="collapse-head" id="pantryToggle" type="button" aria-expanded="true"><span class="collapse-title">🧊 My fridge</span><span class="collapse-meta"><span id="pantryCount" class="muted"></span><span class="chev" aria-hidden="true">▾</span></span></button><div class="collapse-body" id="pantryBody"><form id="ingredientForm" class="inline-form"><input id="ingredientName" aria-label="Ingredient name" placeholder="e.g. tomatoes, rice, spinach" required><input id="ingredientQty" type="number" min="0.1" step="0.1" value="1" aria-label="Quantity"><select id="ingredientUnit" aria-label="Unit"><option>pcs</option><option>cups</option><option>g</option><option>kg</option><option>oz</option><option>lb</option></select><button class="primary" type="submit">Add</button></form><div id="ingredientChips" class="chips"></div></div></div>
-<div class="panel discover"><div class="segmented" role="tablist" aria-label="Recipe source"><button id="modeLib" class="seg selected" type="button" role="tab" aria-selected="true">📚 Library</button><button id="modeAI" class="seg" type="button" role="tab" aria-selected="false">✨ AI ideas</button></div>
-<div id="libControls"><div class="pill-row" id="mealPills" role="group" aria-label="Meal type"><button type="button" class="pill selected" data-meal="any">All meals</button><button type="button" class="pill" data-meal="breakfast">🌅 Breakfast</button><button type="button" class="pill" data-meal="lunch">🥗 Lunch</button><button type="button" class="pill" data-meal="dinner">🌙 Dinner</button></div><div class="controls tight"><label>Diet<select id="diet"><option value="any">Anything</option><option value="vegetarian">Vegetarian</option><option value="no-eggs">Vegetarian, no eggs</option><option value="vegan">Vegan</option></select></label><label>Max cook time<select id="maxTime"><option value="120">Any time</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="45">45 minutes</option></select></label><label class="switch-label">Use-it-up mode<input type="checkbox" id="useItUp" class="switch"><span class="switch-ui" aria-hidden="true"></span></label></div><p class="hint" id="useItUpHint" hidden>Prioritising recipes that use what’s already in your fridge.</p><button id="suggestBtn" class="primary wide">🔍 Update recipes</button></div>
-<div id="aiControls" hidden><p class="muted">Personalized ideas based on your pantry, diet and cook time. Your offline recipes remain available in the Library tab.</p><button class="primary wide" id="generateAI">✨ Generate 3 AI recipes</button><p class="hint" id="aiStatus" role="status" aria-live="polite">Requires internet and a configured AI backend. No account needed for the local library.</p></div></div>
-<div class="section-heading"><h2 id="resultsTitle">Recipes for you</h2><span id="recipeCount" class="muted"></span></div><div id="recipes" class="recipe-grid"></div><div id="aiRecipes" class="recipe-grid" hidden></div></section>
-<section id="guide" class="view"><div class="page-title"><span class="eyebrow">STEP BY STEP</span><h1>Dish Guide</h1><p>Type any dish name and get a complete guide — ingredients first, then one clear step at a time.</p></div><div class="panel"><form id="guideForm" class="inline-form"><input id="guideInput" aria-label="Dish name" placeholder="e.g. Butter Chicken, Masala Dosa, Pancakes" required><button class="primary" type="submit">Get guide</button></form><p class="hint">Works offline for the built-in library below. For any other dish, AI can write the guide when you're online.</p><div class="chips" id="guideChips"></div><div class="chips" id="guideRecent"></div></div><div id="guideResult"></div></section>
-<section id="month" class="view"><div class="page-title"><span class="eyebrow">PLAN AHEAD</span><h1>Your monthly menu</h1><p>Affordable meals with fewer repeat dinners. Tap a day to view it, or tap 🔀 to swap the dish.</p></div><div class="panel"><div class="controls"><label>Month<input type="month" id="monthInput"></label><label>Grocery budget ($)<input id="budget" type="number" min="1" step="1" value="100"></label><label>Restaurant nights<input id="eatOut" type="number" min="0" max="20" value="4"></label></div><button id="generateMonth" class="primary wide">Build my dinner plan</button><p class="hint">Estimates are illustrative, not live store prices. Restaurant costs are not included.</p></div><div id="monthSummary"></div><div id="monthGrid" class="calendar"></div></section>
-<section id="days" class="view"><div class="page-title"><span class="eyebrow">JUST THE DAYS YOU NEED</span><h1>Plan my days</h1><p>Choose dates and build breakfast, lunch, and dinner around your preferences.</p></div><div class="panel"><label>Select planning dates<input id="dayDate" type="date"></label><button id="addDay" class="secondary">+ Add date</button><div id="selectedDates" class="chips"></div><button id="generateDays" class="primary wide">Plan selected days</button></div><div id="dayPlans"></div></section>
-<section id="shop" class="view"><div class="page-title"><span class="eyebrow">GET ORGANIZED</span><h1>Shopping list</h1><p>One checklist for your planned meals.</p></div><div class="panel"><div class="section-heading"><h2>Groceries</h2><button class="secondary small" id="clearChecked">Clear checked</button></div><div class="progress" id="shopProgressWrap" hidden><div class="progress-bar" id="shopProgress"></div></div><p class="hint" id="shopProgressText"></p><form id="shoppingForm" class="inline-form"><input id="shoppingName" placeholder="Add grocery item" required><button type="submit" class="primary">Add</button></form><div id="shoppingList" class="shopping-list"></div><button class="secondary wide" id="shareList">Share / copy list</button></div></section>
-<section id="settings" class="view"><div class="page-title"><span class="eyebrow">MADE FOR YOUR ROUTINE</span><h1>Settings & data</h1><p>Your plans are stored on this device, not on a server.</p></div><div class="panel"><h2>Appearance</h2><p class="muted">Choose how Fridge Chef looks on this device. System follows your phone's light / dark setting.</p><div class="button-row" role="group" aria-label="Theme"><button type="button" class="secondary theme-opt" data-theme-opt="system" aria-pressed="true">System</button><button type="button" class="secondary theme-opt" data-theme-opt="light" aria-pressed="false">☀️ Light</button><button type="button" class="secondary theme-opt" data-theme-opt="dark" aria-pressed="false">🌙 Dark</button></div></div><div class="panel"><h2>Your preferences</h2><label>Daily calorie goal (optional)<input id="calorieGoal" type="number" min="0" placeholder="e.g. 2000"></label><label>Avoid ingredients (comma-separated)<input id="avoid" placeholder="e.g. peanuts, mushrooms"></label><button id="savePrefs" class="primary wide">Save preferences</button></div><div class="panel"><h2>Keep a backup</h2><p class="muted">Export data before clearing your browser, changing phones, or reinstalling the app.</p><div class="button-row"><button id="exportData" class="secondary">Export backup</button><label class="secondary file-label">Import backup<input type="file" id="importData" accept="application/json,.json" hidden></label></div><button id="exportHTML" class="secondary wide">Save a standalone offline HTML copy</button><p class="hint">The offline copy includes the current view and saved data; use the installed app for the full experience.</p></div><div class="panel"><h2>About Fridge Chef</h2><p class="muted">Recipe ideas work offline. Nutrition and pricing are approximate. Strict diet filters exclude disallowed recipe ingredients, but always check labels for allergens. Saved data is separate between browsers and iPhone home-screen installs.</p></div></section>
-</main><nav class="bottom" aria-label="Main navigation"><button class="tab selected" data-tab="cook"><span>🍳</span>Cook</button><button class="tab" data-tab="guide"><span>🧭</span>Guide</button><button class="tab" data-tab="month"><span>🗓️</span>Month</button><button class="tab" data-tab="days"><span>📆</span>My days</button><button class="tab" data-tab="shop"><span>🛒</span>Shop</button><button class="tab" data-tab="settings"><span>⚙️</span>More</button></nav></div><dialog id="recipeDialog"><div id="recipeDetail"></div><button class="secondary wide" id="dialogClose">Close</button></dialog><div id="toast" role="status" aria-live="polite"></div><script src="./app.js" defer></script></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MintNomad</title>
+<meta name="description" content="A calm, local-first personal finance tracker. Works offline.">
+<meta name="theme-color" id="metaThemeColor" content="#0E7C6B">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="MintNomad">
+<link rel="stylesheet" href="styles.css">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+/* Apply saved theme before first paint to avoid a flash. */
+try {
+  var _s = JSON.parse(localStorage.getItem('finance-app-v1') || '{}');
+  var _t = (_s.settings && _s.settings.theme) || 'system';
+  var _dark = _t === 'dark' || (_t !== 'light' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = _dark ? 'dark' : 'light';
+} catch (e) { document.documentElement.dataset.theme = 'light'; }
+</script>
+<style>
+/* Paint the correct background before styles.css loads — no light flash in dark mode. */
+html[data-theme="dark"] { background: #0E1B17; }
+html[data-theme="light"] { background: #F7F6F0; }
+</style>
+</head>
+<body>
+<header class="app-header">
+  <button id="btnPeople" class="people-btn" aria-label="People" title="People"><span id="peopleAvatar" class="people-avatar pav-0">M</span></button>
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">◍</span>
+    <span class="brand-name">MintNomad</span>
+  </div>
+  <div class="header-actions">
+    <button id="btnAdd" class="icon-btn primary" aria-label="Add entry" title="Add entry">＋</button>
+    <button id="btnBalanceToggle" class="icon-btn" aria-label="Show balances" title="Show balances">👁</button>
+    <button id="btnThemeToggle" class="icon-btn" aria-label="Switch to dark mode" title="Toggle dark mode">🌙</button>
+    <button id="btnSettings" class="icon-btn" aria-label="Settings" title="Settings">⚙</button>
+  </div>
+</header>
+
+<div id="drawerBackdrop" class="drawer-backdrop hidden"></div>
+<aside id="peopleDrawer" class="people-drawer hidden" aria-label="People">
+  <div class="drawer-head"><h2>People</h2><button id="btnCloseDrawer" class="icon-btn" aria-label="Close">✕</button></div>
+  <div id="peopleList" class="people-list"></div>
+  <button id="btnAddPerson" class="btn primary block">＋ Add person</button>
+  <p class="hint drawer-note">Each person has their own accounts, cards, goals, investments and transactions — kept completely separate.</p>
+</aside>
+
+<div id="reminderBanner" class="reminder-banner hidden" role="alert"></div>
+
+<main id="main">
+  <!-- OVERVIEW -->
+  <section id="view-overview" class="view active" aria-label="Overview">
+    <div class="balance-carousel" id="balanceCarousel"></div>
+    <div class="carousel-dots" id="balanceDots"></div>
+
+    <div class="country-open-bar hidden" id="countryOpenBar">
+      <button id="btnCountryBack" class="back-btn" aria-label="Back to all countries">‹ All countries</button>
+      <span class="country-open-title" id="countryOpenTitle"></span>
+    </div>
+
+    <div class="card" id="cardHistory">
+      <div class="row-between">
+        <h2>Transaction history</h2>
+        <button class="pill pill-btn" id="btnHomeTxAll">View all</button>
+      </div>
+      <div id="homeTxList" class="stack"></div>
+    </div>
+
+    <div class="card" id="cardSpending">
+      <div class="row-between">
+        <h2>Spending by category</h2>
+        <span class="pill">Expenses</span>
+      </div>
+      <div id="catEmpty" class="empty hidden">Add expenses to see your spending breakdown.</div>
+      <canvas id="catChart" height="180" aria-label="Bar chart of spending by category"></canvas>
+      <div id="catLegend" class="legend"></div>
+    </div>
+
+    <div class="card" id="cardUpcoming">
+      <div class="row-between">
+        <h2>Upcoming checklist</h2>
+        <span class="pill">Plan ahead</span>
+      </div>
+      <div id="upcomingList" class="stack"></div>
+    </div>
+
+    <div class="card" id="cardPace">
+      <h2>Savings pace</h2>
+      <div id="savingsPace" class="stack"></div>
+    </div>
+  </section>
+
+  <!-- ACTIVITY -->
+  <section id="view-activity" class="view" aria-label="Activity">
+    <div class="card">
+      <div class="row-between">
+        <h2>Transactions</h2>
+        <select id="activityFilter" aria-label="Filter transactions">
+          <option value="all">All</option>
+          <option value="income">Income</option>
+          <option value="expense">Expenses</option>
+          <option value="cardpayment">Card payments</option>
+          <option value="saving">Savings</option>
+        </select>
+      </div>
+      <div id="txList" class="stack"></div>
+    </div>
+  </section>
+
+  <!-- CARDS -->
+  <section id="view-cards" class="view" aria-label="Cards">
+    <div class="card">
+      <div class="row-between">
+        <h2>Credit cards</h2>
+        <button class="btn small" id="btnAddCard">Add card</button>
+      </div>
+      <div id="cardList" class="stack"></div>
+    </div>
+    <div class="card">
+      <h2>Payment plan <span class="muted-note">twice a month</span></h2>
+      <div id="planList" class="stack"></div>
+    </div>
+  </section>
+
+  <!-- ACCOUNTS -->
+  <section id="view-accounts" class="view" aria-label="Accounts">
+    <div class="card">
+      <div class="row-between">
+        <h2>Bank accounts</h2>
+        <button class="btn small" id="btnAddAccount">Add account</button>
+      </div>
+      <div id="accountList" class="stack"></div>
+    </div>
+  </section>
+
+  <!-- INVESTMENTS -->
+  <section id="view-investments" class="view" aria-label="Investments">
+    <div class="card">
+      <div class="row-between">
+        <h2>Investments</h2>
+        <button class="btn small" id="btnAddInvestment">Add investment</button>
+      </div>
+      <div id="invSummary" style="margin-top:12px"></div>
+      <p class="hint">The total value counts toward your total balance in the header, separately for each currency. Update a holding's current value whenever it changes — no prices are fetched, everything stays on this device.</p>
+    </div>
+    <div class="card">
+      <h2>Holdings</h2>
+      <div id="investmentList" class="stack"></div>
+    </div>
+  </section>
+
+  <!-- GOALS -->
+  <section id="view-goals" class="view" aria-label="Savings goals">
+    <div class="card">
+      <div class="row-between">
+        <h2>Savings goals</h2>
+        <button class="btn small" id="btnAddGoal">Add goal</button>
+      </div>
+      <div id="goalList" class="stack"></div>
+    </div>
+    <div class="card hidden" id="roadmapCard">
+      <h2 id="roadmapTitle">Roadmap</h2>
+      <div id="roadmapBody"></div>
+    </div>
+  </section>
+
+  <!-- CALENDAR -->
+  <section id="view-calendar" class="view" aria-label="Calendar">
+    <div class="card">
+      <div class="row-between">
+        <button id="calPrev" class="icon-btn" aria-label="Previous month">‹</button>
+        <h2 id="calLabel" style="margin:0"></h2>
+        <button id="calNext" class="icon-btn" aria-label="Next month">›</button>
+      </div>
+      <div class="row-between" style="margin-top:8px">
+        <span class="muted-note">Tap a day to see what's due</span>
+        <button class="btn small ghost" id="calToday">Today</button>
+      </div>
+      <div id="calGrid" style="margin-top:10px"></div>
+      <div id="calDetail" style="margin-top:12px"></div>
+    </div>
+    <div class="card">
+      <h2>How due dates work</h2>
+      <p class="hint">Each card's due day repeats every month. Your twice-monthly plan schedules the final payment 2–3 days before the due date shown here.</p>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="view-settings" class="view" aria-label="Settings">
+    <div class="card">
+      <h2>Currency</h2>
+      <label class="field">
+        <span>Default currency for new accounts, cards, goals and investments</span>
+        <select id="setDefaultCurrency"></select>
+      </label>
+      <p class="hint">Track money from multiple countries: every account, card, goal and investment has its own currency, chosen when you add or edit it. Totals are always shown separately per currency — amounts are never converted or added together.</p>
+    </div>
+    <div class="card">
+      <h2>Appearance</h2>
+      <div class="seg" role="radiogroup" aria-label="Appearance" id="themeSeg">
+        <button data-theme-opt="system" role="radio" aria-checked="true">System</button>
+        <button data-theme-opt="light" role="radio" aria-checked="false">Light</button>
+        <button data-theme-opt="dark" role="radio" aria-checked="false">Dark</button>
+      </div>
+      <p class="hint">System follows your device's light / dark setting. The 🌙 / ☀️ button in the header switches instantly; choosing it here or there saves the same preference on this device only.</p>
+    </div>
+    <div class="card">
+      <h2>Payments</h2>
+      <label class="field">
+        <span>Final payment lands</span>
+        <select id="setLeadDays">
+          <option value="2">2 days before due date</option>
+          <option value="3" selected>3 days before due date</option>
+        </select>
+      </label>
+      <p class="hint">Each card is split into two payments a month. The final payment is scheduled this many days before the due date you enter per card.</p>
+    </div>
+    <div class="card">
+      <h2>Local reminders</h2>
+      <p class="hint">Checks run whenever you open the app: cards due within 3 days, and savings goals off pace.</p>
+      <button class="btn" id="btnNotify">Enable notifications</button>
+      <span id="notifyState" class="muted-note"></span>
+    </div>
+    <div class="card">
+      <h2>Export</h2>
+      <div class="btn-grid">
+        <button class="btn" data-csv="transactions">Transactions CSV</button>
+        <button class="btn" data-csv="accounts">Accounts CSV</button>
+        <button class="btn" data-csv="cards">Cards CSV</button>
+        <button class="btn" data-csv="goals">Goals CSV</button>
+        <button class="btn" data-csv="investments">Investments CSV</button>
+      </div>
+      <p class="hint">UTF-8 with BOM, CRLF line endings — opens correctly in Excel, Numbers, Google Sheets and LibreOffice on any OS.</p>
+    </div>
+    <div class="card">
+      <h2>Backup &amp; restore</h2>
+      <div class="btn-grid">
+        <button class="btn" id="btnBackup">Download backup (JSON)</button>
+        <label class="btn file-btn">Restore from backup<input type="file" id="restoreFile" accept="application/json,.json" hidden></label>
+      </div>
+      <p class="hint">Your data lives only in this browser (local-first). Keep a backup file somewhere safe.</p>
+    </div>
+    <div class="card">
+      <h2>Cloud backup (Google Drive)</h2>
+      <p class="hint">Encrypted backup in your own Google Drive, inside a “Finance App” folder. The backup is encrypted on this device with your passphrase before it is uploaded — Google cannot read it, and the passphrase is never stored. See GOOGLE-DRIVE-SETUP.md for the one-time setup.</p>
+      <label class="field"><span>Google OAuth client ID</span>
+        <input type="text" id="driveClientId" placeholder="Paste from Google Cloud Console" autocomplete="off" autocapitalize="off" spellcheck="false">
+      </label>
+      <label class="field"><span>Backup passphrase</span>
+        <input type="password" id="drivePassphrase" placeholder="Enter each time you back up or restore" autocomplete="off">
+      </label>
+      <p class="hint">Lose this passphrase and the cloud backup cannot be read — there is nothing to reset. Keep it somewhere safe, separate from the backup.</p>
+      <div class="btn-grid">
+        <button class="btn primary" id="btnDriveConnect">Connect Google Drive</button>
+        <button class="btn" id="btnDriveBackup">Back up now</button>
+        <button class="btn" id="btnDriveRestore">Restore from Drive</button>
+        <button class="btn ghost" id="btnDriveDisconnect">Disconnect</button>
+      </div>
+      <label class="check"><input type="checkbox" id="driveAutoBackup"> Auto-back up after each change</label>
+      <p class="hint" id="driveStatus"></p>
+    </div>
+    <div class="card danger-zone">
+      <h2>Reset</h2>
+      <button class="btn danger" id="btnWipe">Erase all local data</button>
+    </div>
+    <div class="card">
+      <h2>About</h2>
+      <p class="hint">MintNomad · local-first PWA · <span id="appVersion">v1.0.0</span><br>Install: use your browser's “Add to Home Screen”. Offline works after the first visit.</p>
+    </div>
+  </section>
+</main>
+
+<nav class="tabbar" aria-label="Primary">
+  <button data-tab="overview" class="on"><span class="tab-ico">◍</span><span>Home</span></button>
+  <button data-tab="activity"><span class="tab-ico">⇄</span><span>Activity</span></button>
+  <button data-tab="cards"><span class="tab-ico">▭</span><span>Cards</span></button>
+  <button data-tab="accounts"><span class="tab-ico">🏦</span><span>Banks</span></button>
+  <button data-tab="investments"><span class="tab-ico">📈</span><span>Invest</span></button>
+  <button data-tab="goals"><span class="tab-ico">◎</span><span>Goals</span></button>
+  <button data-tab="calendar"><span class="tab-ico">📅</span><span>Calendar</span></button>
+</nav>
+
+<!-- Transaction modal -->
+<div class="modal hidden" id="modalTx" role="dialog" aria-modal="true" aria-label="Transaction">
+  <div class="sheet">
+    <h2 id="txModalTitle">Add entry</h2>
+    <form id="txForm">
+      <input type="hidden" id="txId">
+      <label class="field"><span>Type</span>
+        <select id="txKind">
+          <option value="income">Income</option>
+          <option value="expense" selected>Expense</option>
+          <option value="cardpayment">Card payment</option>
+          <option value="saving">Savings contribution</option>
+        </select>
+      </label>
+      <div class="grid2">
+        <label class="field"><span>Date</span><input type="date" id="txDate" required></label>
+        <label class="field"><span>Amount</span><input type="number" id="txAmount" min="0.01" step="0.01" inputmode="decimal" required></label>
+      </div>
+      <p class="hint" id="txCurrencyNote" style="margin-top:-4px"></p>
+      <label class="field" id="txCategoryWrap"><span>Category</span>
+        <select id="txCategory"></select>
+      </label>
+      <label class="field" id="txAccountWrap"><span>Account</span><select id="txAccount"></select></label>
+      <label class="field hidden" id="txMethodWrap"><span>Paid with</span><select id="txMethod"></select></label>
+      <label class="field hidden" id="txCardWrap"><span>Card</span><select id="txCard"></select></label>
+      <label class="field hidden" id="txGoalWrap"><span>Goal</span><select id="txGoal"></select></label>
+      <label class="field"><span>Note</span><input type="text" id="txNote" maxlength="140" placeholder="Optional note"></label>
+      <div class="row-end">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="button" class="btn danger hidden" id="txDelete">Delete</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Card modal -->
+<div class="modal hidden" id="modalCard" role="dialog" aria-modal="true" aria-label="Card">
+  <div class="sheet">
+    <h2 id="cardModalTitle">Add card</h2>
+    <form id="cardForm">
+      <input type="hidden" id="cardId">
+      <label class="field"><span>Card name</span><input type="text" id="cardName" required maxlength="60" placeholder="e.g. Sapphire Visa"></label>
+      <label class="field"><span>Currency</span><select id="cardCurrency"></select></label>
+      <label class="field"><span>Card design</span>
+        <div class="issuer-row">
+          <img id="cardIssuerPreview" class="issuer-preview" src="icons/banks/generic.png" alt="Card design">
+          <select id="cardIssuer" aria-label="Card design"></select>
+        </div>
+      </label>
+      <div class="grid2">
+        <label class="field"><span>APR %</span><input type="number" id="cardApr" min="0" max="60" step="0.01" inputmode="decimal" required placeholder="e.g. 24.99"></label>
+        <label class="field"><span>Due day of month</span><input type="number" id="cardDueDay" min="1" max="28" step="1" required placeholder="1–28"></label>
+      </div>
+      <div class="grid2">
+        <label class="field"><span>Credit limit</span><input type="number" id="cardLimit" min="0" step="0.01" inputmode="decimal" placeholder="Optional"></label>
+        <label class="field"><span>Minimum payment</span><input type="number" id="cardMinPay" min="0" step="0.01" inputmode="decimal" placeholder="Optional"></label>
+      </div>
+      <label class="field"><span>Starting balance owed</span><input type="number" id="cardBalance" min="0" step="0.01" inputmode="decimal" value="0"></label>
+      <div class="row-end">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="button" class="btn danger hidden" id="cardDelete">Delete</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Account modal -->
+<div class="modal hidden" id="modalAccount" role="dialog" aria-modal="true" aria-label="Account">
+  <div class="sheet">
+    <h2 id="acctModalTitle">Add account</h2>
+    <form id="acctForm">
+      <input type="hidden" id="acctId">
+      <label class="field"><span>Account name</span><input type="text" id="acctName" required maxlength="60" placeholder="e.g. Checking"></label>
+      <label class="field"><span>Currency</span><select id="acctCurrency"></select></label>
+      <label class="field"><span>Starting balance</span><input type="number" id="acctBalance" step="0.01" inputmode="decimal" value="0"></label>
+      <div class="row-end">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="button" class="btn danger hidden" id="acctDelete">Delete</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Person modal -->
+<div class="modal hidden" id="modalPerson" role="dialog" aria-modal="true" aria-label="Person">
+  <div class="sheet">
+    <h2 id="personModalTitle">Add person</h2>
+    <form id="formPerson">
+      <input type="hidden" id="personId">
+      <label class="field"><span>Name</span><input type="text" id="personName" required maxlength="40" placeholder="e.g. Asha"></label>
+      <p class="hint">Deleting a person permanently removes all of their accounts, cards, goals, investments and transactions.</p>
+      <div class="row-end">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="button" class="btn danger hidden" id="btnDeletePerson">Delete person</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Investment modal -->
+<div class="modal hidden" id="modalInvestment" role="dialog" aria-modal="true" aria-label="Investment">
+  <div class="sheet">
+    <h2 id="invModalTitle">Add investment</h2>
+    <form id="invForm">
+      <input type="hidden" id="invId">
+      <label class="field"><span>Name</span><input type="text" id="invName" required maxlength="60" placeholder="e.g. VOO · S&amp;P 500 ETF"></label>
+      <label class="field"><span>Type</span>
+        <select id="invType">
+          <option>Stocks</option>
+          <option>ETF</option>
+          <option>Index fund</option>
+          <option>Mutual fund</option>
+          <option>Crypto</option>
+          <option>Bonds</option>
+          <option>Retirement</option>
+          <option>Real estate</option>
+          <option>Other</option>
+        </select>
+      </label>
+      <label class="field"><span>Currency</span><select id="invCurrency"></select></label>
+      <div class="grid2">
+        <label class="field"><span>Amount invested</span><input type="number" id="invContributed" min="0" step="0.01" inputmode="decimal" value="0"></label>
+        <label class="field"><span>Current value</span><input type="number" id="invCurrentValue" min="0" step="0.01" inputmode="decimal" value="0"></label>
+      </div>
+      <label class="field"><span>Note</span><input type="text" id="invNote" maxlength="140" placeholder="Optional note"></label>
+      <p class="hint">Current value is what counts toward your total balance. Edit the holding to update its value as it grows or falls.</p>
+      <div class="row-end">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="button" class="btn danger hidden" id="invDelete">Delete</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Goal modal -->
+<div class="modal hidden" id="modalGoal" role="dialog" aria-modal="true" aria-label="Savings goal">
+  <div class="sheet">
+    <h2 id="goalModalTitle">Add goal</h2>
+    <form id="goalForm">
+      <input type="hidden" id="goalId">
+      <label class="field"><span>Goal name</span><input type="text" id="goalName" required maxlength="60" placeholder="e.g. Emergency fund"></label>
+      <label class="field"><span>Currency</span><select id="goalCurrency"></select></label>
+      <div class="grid2">
+        <label class="field"><span>Target amount</span><input type="number" id="goalTarget" min="1" step="0.01" inputmode="decimal" required></label>
+        <label class="field"><span>Target date</span><input type="date" id="goalDate" required></label>
+      </div>
+      <label class="field"><span>Already saved</span><input type="number" id="goalSaved" min="0" step="0.01" inputmode="decimal" value="0"></label>
+      <div class="row-end">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="button" class="btn danger hidden" id="goalDelete">Delete</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal hidden" id="modalAddCountry" role="dialog" aria-modal="true" aria-label="Add">
+  <div class="sheet">
+    <h2 id="addCountryTitle">Add a country</h2>
+    <div id="addCountryPick">
+      <label class="field"><span>Country / currency</span><select id="addCountrySelect"></select></label>
+      <p class="hint">A country joins your home screen once it has a bank account or an investment. Pick the country, then add its first one.</p>
+    </div>
+    <div class="choice-list">
+      <button type="button" class="btn choice-btn" id="addChoiceTx">⇄&ensp;Transaction</button>
+      <button type="button" class="btn choice-btn" id="addChoiceAccount">🏦&ensp;Bank account</button>
+      <button type="button" class="btn choice-btn" id="addChoiceCard">▭&ensp;Credit card</button>
+      <button type="button" class="btn choice-btn" id="addChoiceInvestment">📈&ensp;Investment</button>
+      <button type="button" class="btn choice-btn" id="addChoiceGoal">◎&ensp;Savings goal</button>
+    </div>
+    <div class="row-end">
+      <button type="button" class="btn ghost" data-close>Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden" role="status"></div>
+
+<script src="card-designs.js"></script>
+<script src="app.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
