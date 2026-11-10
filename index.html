@@ -380,6 +380,14 @@ html[data-theme="light"] { background: #F7F6F0; }
     <h2 id="personModalTitle">Add person</h2>
     <form id="formPerson">
       <input type="hidden" id="personId">
+      <div class="person-photo-row">
+        <span id="personPhotoPreview" class="people-avatar person-photo-preview pav-0">?</span>
+        <div class="person-photo-actions">
+          <button type="button" class="btn small" id="btnPersonPhoto">Add photo</button>
+          <button type="button" class="btn ghost small hidden" id="btnPersonPhotoRemove">Remove</button>
+        </div>
+        <input type="file" id="personPhotoInput" accept="image/*" class="hidden">
+      </div>
       <label class="field"><span>Name</span><input type="text" id="personName" required maxlength="40" placeholder="e.g. Asha"></label>
       <p class="hint">Deleting a person permanently removes all of their accounts, cards, goals, investments and transactions.</p>
       <div class="row-end">

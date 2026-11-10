@@ -313,6 +313,16 @@ t('people: switching swaps data bundles and keeps them separate', () => {
   assert.strictEqual(F.personInitials('Manan'), 'M');
 });
 
+t('people: avatar photos kept only as bounded image data URLs', () => {
+  const good = F.normalizeState({ accounts: [], cards: [], goals: [], investments: [], transactions: [],
+    people: [{ id: 'x1', name: 'Zed', photo: 'data:image/jpeg;base64,AAAA' }], activePersonId: 'x1' });
+  assert.strictEqual(good.people[0].photo, 'data:image/jpeg;base64,AAAA');
+  const remote = F.normalizeState({ accounts: [], people: [{ id: 'x1', name: 'Zed', photo: 'https://example.com/x.png' }] });
+  assert.strictEqual(remote.people[0].photo, undefined);
+  const huge = F.normalizeState({ accounts: [], people: [{ id: 'x1', name: 'Zed', photo: 'data:image/png;base64,' + 'A'.repeat(300000) }] });
+  assert.strictEqual(huge.people[0].photo, undefined);
+});
+
 t('currency: totals stay separate per currency', () => {
   const st = blank();
   st.accounts.push(

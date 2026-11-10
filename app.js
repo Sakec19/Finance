@@ -222,7 +222,11 @@ function normalizeState(obj) {
   var people = [];
   if (Array.isArray(obj.people)) obj.people.forEach(function (p) {
     if (p && typeof p === 'object' && p.id && String(p.name || '').trim()) {
-      people.push({ id: String(p.id), name: String(p.name).trim().slice(0, 40) });
+      var entry = { id: String(p.id), name: String(p.name).trim().slice(0, 40) };
+      /* Optional avatar photo: only our own generated image data URLs are
+         kept (the app stores a 128px JPEG, ~15 KB), never remote URLs. */
+      if (typeof p.photo === 'string' && p.photo.indexOf('data:image/') === 0 && p.photo.length <= 262144) entry.photo = p.photo;
+      people.push(entry);
     }
   });
   var seenP = {};
@@ -1323,11 +1327,15 @@ function openModal(id) { $(id).classList.remove('hidden'); }
 function closeModals() { document.querySelectorAll('.modal').forEach(function (m) { m.classList.add('hidden'); }); }
 
 /* ---------------- people UI: sidebar drawer + person form ---------------- */
+function avatarHTML(person) {
+  if (person && person.photo) return '<img alt="" src="' + esc(person.photo) + '">';
+  return esc(personInitials(person ? person.name : ''));
+}
 function renderPeople() {
   var p = activePerson(state);
   var av = $('peopleAvatar');
   if (av) {
-    av.textContent = personInitials(p.name);
+    av.innerHTML = avatarHTML(p);
     av.className = 'people-avatar pav-' + (state.people.indexOf(p) % 6);
   }
   var list = $('peopleList');
@@ -1338,7 +1346,7 @@ function renderPeople() {
       bun.investments.length + (bun.investments.length === 1 ? ' holding' : ' holdings');
     var isActive = person.id === state.activePersonId;
     return '<div class="person-row' + (isActive ? ' active' : '') + '" data-person="' + esc(person.id) + '" role="button" tabindex="0">' +
-      '<span class="people-avatar pav-' + (i % 6) + '">' + esc(personInitials(person.name)) + '</span>' +
+      '<span class="people-avatar pav-' + (i % 6) + '">' + avatarHTML(person) + '</span>' +
       '<span class="person-main"><span class="person-name">' + esc(person.name) + '</span>' +
       '<span class="person-sub">' + esc(sub) + '</span></span>' +
       (isActive ? '<span class="person-check" aria-hidden="true">✓</span>' : '') +
@@ -1363,12 +1371,48 @@ function switchPerson(id) {
   render();
   toast('Switched to ' + activePerson(state).name);
 }
+/* Photo chosen in the person form but not yet saved: a data URL, '' when
+   the photo was removed, or null when untouched. */
+var pendingPersonPhoto = null;
+function updatePersonPhotoPreview() {
+  var prev = $('personPhotoPreview');
+  if (!prev) return;
+  var id = $('personId').value;
+  var idx = state.people.length % 6;
+  state.people.forEach(function (p, i) { if (p.id === id) idx = i; });
+  prev.className = 'people-avatar person-photo-preview pav-' + (idx % 6);
+  if (pendingPersonPhoto) prev.innerHTML = '<img alt="" src="' + pendingPersonPhoto + '">';
+  else prev.textContent = personInitials($('personName').value.trim() || '?');
+  $('btnPersonPhoto').textContent = pendingPersonPhoto ? 'Change photo' : 'Add photo';
+  $('btnPersonPhotoRemove').classList.toggle('hidden', !pendingPersonPhoto);
+}
+/* Downscale a picked image to a 128px centre-cropped square JPEG data URL
+   (~15 KB) so photos stay small enough for local storage. */
+function processPersonPhoto(file, cb) {
+  var url = URL.createObjectURL(file);
+  var img = new Image();
+  img.onload = function () {
+    try {
+      var size = 128;
+      var cv = document.createElement('canvas');
+      cv.width = size; cv.height = size;
+      var side = Math.min(img.width, img.height);
+      cv.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
+      URL.revokeObjectURL(url);
+      cb(cv.toDataURL('image/jpeg', 0.85));
+    } catch (e) { URL.revokeObjectURL(url); cb(null); }
+  };
+  img.onerror = function () { URL.revokeObjectURL(url); cb(null); };
+  img.src = url;
+}
 function openPersonModal(id) {
   var p = null;
   state.people.forEach(function (x) { if (x.id === id) p = x; });
   $('personModalTitle').textContent = p ? 'Edit person' : 'Add person';
   $('personId').value = p ? p.id : '';
   $('personName').value = p ? p.name : '';
+  pendingPersonPhoto = p && p.photo ? p.photo : null;
+  updatePersonPhotoPreview();
   $('btnDeletePerson').classList.toggle('hidden', !p || state.people.length <= 1);
   openModal('modalPerson');
 }
@@ -1783,13 +1827,19 @@ function init() {
     if (!name) return;
     var id = $('personId').value;
     if (id) {
-      state.people.forEach(function (p) { if (p.id === id) p.name = name; });
+      state.people.forEach(function (p) {
+        if (p.id === id) {
+          p.name = name;
+          if (pendingPersonPhoto) p.photo = pendingPersonPhoto; else delete p.photo;
+        }
+      });
       persist(state);
       closeModals();
       render();
       toast('Person updated');
     } else {
       var np = { id: 'p-' + uid(), name: name };
+      if (pendingPersonPhoto) np.photo = pendingPersonPhoto;
       state.people.push(np);
       if (!state.peopleData || typeof state.peopleData !== 'object') state.peopleData = {};
       state.peopleData[np.id] = emptyBundle();
@@ -1801,6 +1851,28 @@ function init() {
       render();
       toast(np.name + ' added — switched to them');
     }
+  });
+  var photoBtn = $('btnPersonPhoto');
+  if (photoBtn) photoBtn.addEventListener('click', function () { $('personPhotoInput').click(); });
+  var photoInput = $('personPhotoInput');
+  if (photoInput) photoInput.addEventListener('change', function () {
+    var f = photoInput.files && photoInput.files[0];
+    photoInput.value = '';
+    if (!f) return;
+    processPersonPhoto(f, function (dataUrl) {
+      if (!dataUrl) { toast('That image could not be used'); return; }
+      pendingPersonPhoto = dataUrl;
+      updatePersonPhotoPreview();
+    });
+  });
+  var photoRemoveBtn = $('btnPersonPhotoRemove');
+  if (photoRemoveBtn) photoRemoveBtn.addEventListener('click', function () {
+    pendingPersonPhoto = '';
+    updatePersonPhotoPreview();
+  });
+  var personNameInput = $('personName');
+  if (personNameInput) personNameInput.addEventListener('input', function () {
+    if (!pendingPersonPhoto) updatePersonPhotoPreview();
   });
   $('btnDeletePerson').addEventListener('click', function () {
     var id = $('personId').value;
