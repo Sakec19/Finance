@@ -84,6 +84,15 @@ html[data-theme="light"] { background: #F7F6F0; }
       <div id="catLegend" class="legend"></div>
     </div>
 
+    <div class="card" id="cardBudgets">
+      <div class="row-between">
+        <h2>Budgets</h2>
+        <button class="pill pill-btn" id="btnAddBudget">＋ Add</button>
+      </div>
+      <div class="hint" id="budgetMonth"></div>
+      <div id="budgetList" class="stack"></div>
+    </div>
+
     <div class="card" id="cardUpcoming">
       <div class="row-between">
         <h2>Upcoming checklist</h2>
@@ -399,6 +408,24 @@ html[data-theme="light"] { background: #F7F6F0; }
   </div>
 </div>
 
+<!-- Budget modal -->
+<div class="modal hidden" id="modalBudget" role="dialog" aria-modal="true" aria-label="Budget">
+  <div class="sheet">
+    <h2 id="budgetModalTitle">Add budget</h2>
+    <form id="budgetForm">
+      <input type="hidden" id="budgetId">
+      <label class="field"><span>Category</span><select id="budgetCategory"></select></label>
+      <label class="field"><span>Currency</span><select id="budgetCurrency"></select></label>
+      <label class="field"><span>Monthly limit</span><input type="number" id="budgetLimit" step="0.01" min="0" inputmode="decimal" placeholder="0"></label>
+      <div class="row-end">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="button" class="btn danger hidden" id="budgetDelete">Delete</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Investment modal -->
 <div class="modal hidden" id="modalInvestment" role="dialog" aria-modal="true" aria-label="Investment">
   <div class="sheet">
@@ -470,6 +497,7 @@ html[data-theme="light"] { background: #F7F6F0; }
       <button type="button" class="btn choice-btn" id="addChoiceCard">▭&ensp;Credit card</button>
       <button type="button" class="btn choice-btn" id="addChoiceInvestment">📈&ensp;Investment</button>
       <button type="button" class="btn choice-btn" id="addChoiceGoal">◎&ensp;Savings goal</button>
+      <button type="button" class="btn choice-btn" id="addChoiceBudget">🎯&ensp;Budget</button>
     </div>
     <div class="row-end">
       <button type="button" class="btn ghost" data-close>Cancel</button>

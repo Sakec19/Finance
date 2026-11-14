@@ -313,6 +313,43 @@ t('people: switching swaps data bundles and keeps them separate', () => {
   assert.strictEqual(F.personInitials('Manan'), 'M');
 });
 
+t('budgets: normalize validates, defaults currency, dedupes', () => {
+  const st = F.normalizeState({ accounts: [], cards: [], goals: [], investments: [], transactions: [],
+    budgets: [
+      { id: 'b1', category: 'Groceries', limit: 10000 },
+      { id: 'b2', category: 'Groceries', currency: 'USD', limit: 300 },
+      { id: 'b3', category: 'Groceries', currency: 'USD', limit: 999 },
+      { id: 'b4', category: '', currency: 'USD', limit: 50 },
+      { id: 'b5', category: 'Dining', currency: 'BTC', limit: -5 },
+      { id: 'b6', category: 'Dining', currency: 'INR', limit: 4000 }
+    ] });
+  assert.strictEqual(st.budgets.length, 2);
+  assert.strictEqual(st.budgets[0].currency, 'USD');
+  assert.strictEqual(st.budgets[0].limit, 10000);
+  assert.strictEqual(st.budgets[1].category, 'Dining');
+  assert.strictEqual(st.budgets[1].currency, 'INR');
+});
+
+t('budgets: progress compares this month spend per category and currency', () => {
+  const st = blank();
+  st.budgets.push(
+    { id: 'b1', category: 'Groceries', currency: 'INR', limit: 10000 },
+    { id: 'b2', category: 'Dining', currency: 'USD', limit: 100 },
+    { id: 'b3', category: 'Dining', currency: 'INR', limit: 5000 });
+  const rows = F.budgetsWithProgress(st, 'INR', { Groceries: 2000, Dining: 6500 });
+  assert.strictEqual(rows.length, 2);
+  assert.strictEqual(rows[0].category, 'Dining');
+  assert.strictEqual(rows[0].over, true);
+  assert.strictEqual(rows[0].pct, 130);
+  assert.strictEqual(rows[0].remaining, -1500);
+  assert.strictEqual(rows[1].category, 'Groceries');
+  assert.strictEqual(rows[1].pct, 20);
+  assert.strictEqual(rows[1].remaining, 8000);
+  const usd = F.budgetsWithProgress(st, 'USD', { Dining: 120 });
+  assert.strictEqual(usd.length, 1);
+  assert.strictEqual(usd[0].over, true);
+});
+
 t('people: avatar photos kept only as bounded image data URLs', () => {
   const good = F.normalizeState({ accounts: [], cards: [], goals: [], investments: [], transactions: [],
     people: [{ id: 'x1', name: 'Zed', photo: 'data:image/jpeg;base64,AAAA' }], activePersonId: 'x1' });

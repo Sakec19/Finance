@@ -167,14 +167,29 @@ function investmentsContributed(st, cur) {
 }
 function investmentGain(inv) { return round2((+inv.currentValue || 0) - (+inv.contributed || 0)); }
 
+/* ---------------- budgets ----------------
+   One monthly spending limit per category + currency. Progress compares
+   the limit with this month's spending in that category (byCat, from
+   summarizeByCurrency for the current month). Currencies never mix. */
+function budgetsWithProgress(st, cur, byCat) {
+  var list = ((st && st.budgets) || []).filter(function (b) { return entityCurrency(b) === cur; });
+  return list.map(function (b) {
+    var spent = round2((byCat && +byCat[b.category]) || 0);
+    var limit = round2(+b.limit || 0);
+    return { id: b.id, category: b.category, currency: cur, limit: limit, spent: spent,
+      remaining: round2(limit - spent), pct: limit > 0 ? Math.round(spent / limit * 100) : 0,
+      over: spent > limit };
+  }).sort(function (a, b) { return (b.pct - a.pct) || (a.category < b.category ? -1 : 1); });
+}
+
 /* ---------------- storage ---------------- */
 var KEY = 'finance-app-v1';
 /* The five data arrays are the unit that belongs to one person. */
-var DATA_KEYS = ['transactions', 'accounts', 'cards', 'goals', 'investments'];
+var DATA_KEYS = ['transactions', 'accounts', 'cards', 'goals', 'investments', 'budgets'];
 function bundleOf(st) { var o = {}; DATA_KEYS.forEach(function (k) { o[k] = st[k]; }); return o; }
 function emptyBundle() { var o = {}; DATA_KEYS.forEach(function (k) { o[k] = []; }); return o; }
 function blankState() {
-  var b = { transactions: [], accounts: [], cards: [], goals: [], investments: [],
+  var b = { transactions: [], accounts: [], cards: [], goals: [], investments: [], budgets: [],
     settings: { leadDays: 3, theme: 'system', defaultCurrency: 'USD',
       driveClientId: '', driveAutoBackup: false, driveFolderId: '', driveFileId: '',
       driveLastBackupAt: '', driveEmail: '' } };
@@ -195,13 +210,23 @@ function sanitizeBundle(st) {
     (Array.isArray(st[k]) ? st[k] : []).forEach(function (e) { if (e && typeof e === 'object') e.currency = isValidCurrency(e.currency) ? e.currency : 'USD'; });
   });
   (Array.isArray(st.cards) ? st.cards : []).forEach(function (c) { if (c && typeof c === 'object' && !c.bankId) c.bankId = 'generic'; });
+  /* Budgets: one monthly limit per category + currency. Entries without a
+     category or a positive limit are dropped; duplicates keep the first. */
+  st.budgets = (Array.isArray(st.budgets) ? st.budgets : []).filter(function (bg) {
+    return bg && typeof bg === 'object' && String(bg.category || '').trim() && (+bg.limit || 0) > 0;
+  }).map(function (bg) {
+    return { id: bg.id || uid(), category: String(bg.category).trim().slice(0, 40),
+      currency: isValidCurrency(bg.currency) ? bg.currency : 'USD', limit: round2(+bg.limit) };
+  });
+  var seenB = {};
+  st.budgets = st.budgets.filter(function (bg) { var k = bg.category + '|' + bg.currency; if (seenB[k]) return false; seenB[k] = 1; return true; });
 }
 /* Merge a parsed backup (or stored state) onto defaults so older backups
    without newer settings fields still load. Never throws on bad input. */
 function normalizeState(obj) {
   var b = blankState();
   if (!obj || typeof obj !== 'object') return b;
-  ['transactions', 'accounts', 'cards', 'goals', 'investments'].forEach(function (k) {
+  ['transactions', 'accounts', 'cards', 'goals', 'investments', 'budgets'].forEach(function (k) {
     if (Array.isArray(obj[k])) b[k] = obj[k];
   });
   sanitizeBundle(b);
@@ -969,7 +994,7 @@ function renderBalanceCarousel(bal) {
   if (ov) ov.classList.toggle('country-open', open);
   wrap.classList.toggle('hidden', open);
   if (dots) dots.classList.toggle('hidden', open);
-  ['cardHistory', 'cardSpending', 'cardUpcoming', 'cardPace'].forEach(function (id) {
+  ['cardHistory', 'cardSpending', 'cardBudgets', 'cardUpcoming', 'cardPace'].forEach(function (id) {
     var el = $(id); if (el) el.classList.toggle('hidden', !open);
   });
   var bar = $('countryOpenBar');
@@ -1079,6 +1104,24 @@ function renderOverview(bal) {
     else if (!rm.overdue) pace.push('<div class="item"><div class="main"><div class="title">' + esc(g.name) + '</div><div class="sub">' + money(rm.perDay, entityCurrency(g)) + '/day · ' + rm.daysLeft + ' days left</div></div><div class="amt">' + money(rm.remaining, entityCurrency(g)) + ' to go</div></div>');
   });
   $('savingsPace').innerHTML = pace.length ? pace.join('') : '<div class="empty">No savings goals yet.</div>';
+
+  /* Budgets: this country's monthly category limits vs this month's spend
+     (chartData is the current month's by-category spending for sel). */
+  var budgetListEl = $('budgetList');
+  if (budgetListEl) {
+    var monthEl = $('budgetMonth');
+    if (monthEl) monthEl.textContent = 'Monthly limits · ' + parseDate(todayStr()).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    var brows = budgetsWithProgress(state, sel, chartData);
+    budgetListEl.innerHTML = brows.length ? brows.map(function (r) {
+      return '<div class="item budget-row" data-budget="' + esc(r.id) + '" role="button" tabindex="0">' +
+        '<div class="main"><div class="title">' + esc(r.category) + '</div>' +
+        '<div class="sub">' + money(r.spent, sel) + ' of ' + money(r.limit, sel) + (r.over
+          ? ' · <span class="neg">' + money(r.spent - r.limit, sel) + ' over</span>'
+          : ' · ' + money(r.remaining, sel) + ' left') + '</div>' +
+        '<div class="bar budget-bar' + (r.over ? ' over' : '') + '"><i style="width:' + Math.min(100, r.pct) + '%"></i></div></div>' +
+        '<div class="amt' + (r.over ? ' neg' : '') + '">' + r.pct + '%</div></div>';
+    }).join('') : '<div class="empty">No budgets yet for this country. Tap ＋ Add to set a monthly category limit.</div>';
+  }
   revealCurrency = null;
 }
 
@@ -1404,6 +1447,21 @@ function processPersonPhoto(file, cb) {
   };
   img.onerror = function () { URL.revokeObjectURL(url); cb(null); };
   img.src = url;
+}
+function openBudgetModal(id, presetCurrency) {
+  var b = null;
+  state.budgets.forEach(function (x) { if (x.id === id) b = x; });
+  $('budgetModalTitle').textContent = b ? 'Edit budget' : 'Add budget';
+  $('budgetId').value = b ? b.id : '';
+  var cats = EXPENSE_CATS.slice();
+  if (b && cats.indexOf(b.category) < 0) cats.push(b.category);
+  $('budgetCategory').innerHTML = cats.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
+  if (b) $('budgetCategory').value = b.category;
+  setCurrencySelect('budgetCurrency', b ? entityCurrency(b)
+    : (presetCurrency || (ui.selectedCurrency && isValidCurrency(ui.selectedCurrency) ? ui.selectedCurrency : state.settings.defaultCurrency)));
+  $('budgetLimit').value = b ? b.limit : '';
+  $('budgetDelete').classList.toggle('hidden', !b);
+  openModal('modalBudget');
 }
 function openPersonModal(id) {
   var p = null;
@@ -1874,6 +1932,38 @@ function init() {
   if (personNameInput) personNameInput.addEventListener('input', function () {
     if (!pendingPersonPhoto) updatePersonPhotoPreview();
   });
+  var addBudgetBtn = $('btnAddBudget');
+  if (addBudgetBtn) addBudgetBtn.addEventListener('click', function () { openBudgetModal(null); });
+  var budgetListClick = $('budgetList');
+  if (budgetListClick) budgetListClick.addEventListener('click', function (e) {
+    var row = e.target.closest('[data-budget]');
+    if (row) openBudgetModal(row.dataset.budget);
+  });
+  $('budgetForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var id = $('budgetId').value;
+    var cat = $('budgetCategory').value;
+    var cur = $('budgetCurrency').value;
+    var limit = round2(parseFloat($('budgetLimit').value) || 0);
+    if (!cat || limit <= 0) { toast('Enter a monthly limit above zero'); return; }
+    var dup = state.budgets.some(function (b) { return b.id !== id && b.category === cat && entityCurrency(b) === cur; });
+    if (dup) { toast('You already have a ' + cat + ' budget in ' + cur); return; }
+    if (id) {
+      state.budgets.forEach(function (b) { if (b.id === id) { b.category = cat; b.currency = cur; b.limit = limit; } });
+      saveAndRender('Budget updated');
+    } else {
+      state.budgets.push({ id: 'b-' + uid(), category: cat, currency: cur, limit: limit });
+      saveAndRender('Budget added');
+    }
+    closeModals();
+  });
+  $('budgetDelete').addEventListener('click', function () {
+    var id = $('budgetId').value;
+    if (!id) return;
+    state.budgets = state.budgets.filter(function (b) { return b.id !== id; });
+    saveAndRender('Budget deleted');
+    closeModals();
+  });
   $('btnDeletePerson').addEventListener('click', function () {
     var id = $('personId').value;
     if (!id || state.people.length <= 1) return;
@@ -2001,6 +2091,7 @@ function init() {
       $('addChoiceTx').classList.remove('hidden');
       $('addChoiceCard').classList.remove('hidden');
       $('addChoiceGoal').classList.remove('hidden');
+      $('addChoiceBudget').classList.remove('hidden');
     } else {
       fabMode = 'country'; fabCurrency = null;
       $('addCountryTitle').textContent = 'Add a country';
@@ -2010,6 +2101,7 @@ function init() {
       $('addChoiceTx').classList.add('hidden');
       $('addChoiceCard').classList.add('hidden');
       $('addChoiceGoal').classList.add('hidden');
+      $('addChoiceBudget').classList.add('hidden');
       fillCountryPick();
     }
     openModal('modalAddCountry');
@@ -2024,6 +2116,7 @@ function init() {
   wireChoice('addChoiceCard', function (code) { openCardModal(null); setCurrencySelect('cardCurrency', code); });
   wireChoice('addChoiceInvestment', function (code) { openInvestmentModal(null); setCurrencySelect('invCurrency', code); });
   wireChoice('addChoiceGoal', function (code) { openGoalModal(null); setCurrencySelect('goalCurrency', code); });
+  wireChoice('addChoiceBudget', function (code) { openBudgetModal(null, code); });
   $('btnAdd').addEventListener('click', function () {
     if (ui.tab === 'overview') openAddChooser();
     else openTxModal(null);
@@ -2235,6 +2328,7 @@ if (typeof window !== 'undefined') {
   window.FinanceApp = {
     blankState: blankState, loadState: loadState, persist: persist,
     setActivePerson: setActivePerson, activePerson: activePerson, personBundle: personBundle, personInitials: personInitials,
+    budgetsWithProgress: budgetsWithProgress,
     recompute: recompute, periodRange: periodRange, summarize: summarize,
     nextDueDate: nextDueDate, cardPlan: cardPlan, savingsRoadmap: savingsRoadmap,
     dueReminders: dueReminders, validateBackup: validateBackup,
